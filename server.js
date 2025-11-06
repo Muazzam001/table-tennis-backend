@@ -1,11 +1,11 @@
-import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv/config';
+import express from 'express';
 import { errorHandler } from './middlewares/errorHandler.js';
-import playerRoutes from './routes/playerRoutes.js';
-import teamRoutes from './routes/teamRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
+import playerRoutes from './routes/playerRoutes.js';
+import seedRoutes from './routes/seedRoutes.js';
 import statisticsRoutes from './routes/statisticsRoutes.js';
+import teamRoutes from './routes/teamRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT;
@@ -23,6 +23,7 @@ app.use('/api/players', playerRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/statistics', statisticsRoutes);
+app.use('/api/seed', seedRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

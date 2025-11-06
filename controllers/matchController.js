@@ -12,12 +12,31 @@ const formatDateForMySQL = (date) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
+// Helper function to check if a date is a weekend (Saturday = 6, Sunday = 0)
+const isWeekend = (date) => {
+  const day = date.getDay();
+  return day === 0 || day === 6; // Sunday or Saturday
+};
+
+// Helper function to skip weekends and move to next weekday
+const skipWeekends = (date) => {
+  let currentDate = new Date(date);
+  while (isWeekend(currentDate)) {
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  return currentDate;
+};
+
 // Helper function to get next available time slot (7PM-10PM, 30-minute intervals)
 // Returns a date object with the next available slot
 // Maximum 6 matches per day (7:00 PM, 7:30 PM, 8:00 PM, 8:30 PM, 9:00 PM, 9:30 PM)
 // Each match is 30 minutes long
+// Excludes weekends (Saturday and Sunday)
 const getNextTimeSlot = (currentDate) => {
-  const slot = new Date(currentDate);
+  let slot = new Date(currentDate);
+  
+  // Skip weekends first
+  slot = skipWeekends(slot);
   
   // Get current hour and minute
   const currentHour = slot.getHours();
@@ -26,12 +45,19 @@ const getNextTimeSlot = (currentDate) => {
   // If current time is before 7PM, set to 7PM on the same day
   if (currentHour < 19) {
     slot.setHours(19, 0, 0, 0);
+    // Check if this is a weekend after setting time
+    if (isWeekend(slot)) {
+      slot.setDate(slot.getDate() + 1);
+      slot = skipWeekends(slot);
+      slot.setHours(19, 0, 0, 0);
+    }
     return slot;
   }
   
-  // If current time is 10PM or later, move to next day at 7PM
+  // If current time is 10PM or later, move to next weekday at 7PM
   if (currentHour >= 22) {
     slot.setDate(slot.getDate() + 1);
+    slot = skipWeekends(slot);
     slot.setHours(19, 0, 0, 0);
     return slot;
   }
@@ -50,9 +76,10 @@ const getNextTimeSlot = (currentDate) => {
     nextHour += 1;
   }
   
-  // If next slot is 10PM or later, move to next day at 7PM
+  // If next slot is 10PM or later, move to next weekday at 7PM
   if (nextHour >= 22) {
     slot.setDate(slot.getDate() + 1);
+    slot = skipWeekends(slot);
     slot.setHours(19, 0, 0, 0);
     return slot;
   }
@@ -499,10 +526,248 @@ export const generateQuarterFinals = async (req, res, next) => {
   }
 };
 
+// Generate Semi Finals from Quarter Finals results
+export const generateSemiFinals = async (req, res, next) => {
+  try {
+    const { startDate, venue } = req.body;
+    
+    // Check if Quarter Finals exist and are all completed
+    const [quarterFinals] = await pool.execute(
+      "SELECT * FROM matches WHERE round_type = 'Quarter Final' ORDER BY scheduled_date"
+    );
+    
+    if (quarterFinals.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Quarter Finals found. Please generate Quarter Finals first.'
+      });
+    }
+    
+    if (quarterFinals.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        message: `Expected 4 Quarter Final matches, found ${quarterFinals.length}.`
+      });
+    }
+    
+    const incompleteQF = quarterFinals.filter(m => m.status !== 'Completed' || !m.winner_team_id);
+    if (incompleteQF.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Please complete all Quarter Final matches first. ${incompleteQF.length} match(es) remaining.`
+      });
+    }
+    
+    // Check if Semi Finals already exist
+    const [existingSF] = await pool.execute(
+      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Semi Final'"
+    );
+    
+    if (existingSF[0].count > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Semi Finals already generated. Delete existing Semi Final matches to regenerate.'
+      });
+    }
+    
+    // Get winners from Quarter Finals
+    const winners = quarterFinals.map(m => m.winner_team_id);
+    
+    if (winners.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        message: 'Could not determine all Quarter Final winners.'
+      });
+    }
+    
+    // Get team details for winners
+    const [winnerTeams] = await pool.execute(
+      `SELECT id, team_name FROM teams WHERE id IN (${winners.join(',')})`
+    );
+    
+    const winnerMap = {};
+    winnerTeams.forEach(team => {
+      winnerMap[team.id] = team;
+    });
+    
+    // Generate Semi Final matches
+    // QF1 winner vs QF4 winner, QF2 winner vs QF3 winner
+    const semiFinalMatches = [
+      { team1: winnerMap[winners[0]], team2: winnerMap[winners[3]] }, // QF1 vs QF4
+      { team1: winnerMap[winners[1]], team2: winnerMap[winners[2]] }  // QF2 vs QF3
+    ];
+    
+    const matches = [];
+    let currentDate = new Date(startDate || new Date());
+    // Set to first available time slot (7PM on start date)
+    currentDate = getNextTimeSlot(currentDate);
+    
+    for (const match of semiFinalMatches) {
+      matches.push({
+        team1_id: match.team1.id,
+        team2_id: match.team2.id,
+        scheduled_date: formatDateForMySQL(currentDate),
+        venue: venue || 'Main Court',
+        round_type: 'Semi Final',
+        pool: null
+      });
+      // Get next available time slot (30-minute intervals, 7PM-10PM)
+      currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
+    }
+    
+    // Insert matches into database
+    const createdMatches = [];
+    for (const match of matches) {
+      const [result] = await pool.execute(
+        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool) VALUES (?, ?, ?, ?, ?, ?)',
+        [match.team1_id, match.team2_id, match.scheduled_date, match.venue, match.round_type, match.pool]
+      );
+      createdMatches.push({
+        id: result.insertId,
+        ...match
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Semi Finals generated successfully',
+      data: {
+        matches: createdMatches,
+        qualifiedTeams: winners.map(id => {
+          const team = winnerMap[id];
+          return { id: team.id, name: team.team_name };
+        })
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Generate Final from Semi Finals results
+export const generateFinal = async (req, res, next) => {
+  try {
+    const { startDate, venue } = req.body;
+    
+    // Check if Semi Finals exist and are all completed
+    const [semiFinals] = await pool.execute(
+      "SELECT * FROM matches WHERE round_type = 'Semi Final' ORDER BY scheduled_date"
+    );
+    
+    if (semiFinals.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Semi Finals found. Please generate Semi Finals first.'
+      });
+    }
+    
+    if (semiFinals.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: `Expected 2 Semi Final matches, found ${semiFinals.length}.`
+      });
+    }
+    
+    const incompleteSF = semiFinals.filter(m => m.status !== 'Completed' || !m.winner_team_id);
+    if (incompleteSF.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Please complete all Semi Final matches first. ${incompleteSF.length} match(es) remaining.`
+      });
+    }
+    
+    // Check if Final already exists
+    const [existingFinal] = await pool.execute(
+      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final'"
+    );
+    
+    if (existingFinal[0].count > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Final already generated. Delete existing Final match to regenerate.'
+      });
+    }
+    
+    // Get winners from Semi Finals
+    const winners = semiFinals.map(m => m.winner_team_id);
+    
+    if (winners.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Could not determine both Semi Final winners.'
+      });
+    }
+    
+    // Get team details for winners
+    const [winnerTeams] = await pool.execute(
+      `SELECT id, team_name FROM teams WHERE id IN (${winners.join(',')})`
+    );
+    
+    const winnerMap = {};
+    winnerTeams.forEach(team => {
+      winnerMap[team.id] = team;
+    });
+    
+    // Generate Final match
+    // SF1 winner vs SF2 winner
+    const finalMatch = {
+      team1_id: winners[0],
+      team2_id: winners[1],
+      scheduled_date: formatDateForMySQL(getNextTimeSlot(new Date(startDate || new Date()))),
+      venue: venue || 'Main Court',
+      round_type: 'Final',
+      pool: null
+    };
+    
+    // Insert match into database
+    const [result] = await pool.execute(
+      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool) VALUES (?, ?, ?, ?, ?, ?)',
+      [finalMatch.team1_id, finalMatch.team2_id, finalMatch.scheduled_date, finalMatch.venue, finalMatch.round_type, finalMatch.pool]
+    );
+    
+    const createdMatch = {
+      id: result.insertId,
+      ...finalMatch
+    };
+    
+    res.json({
+      success: true,
+      message: 'Final generated successfully',
+      data: {
+        match: createdMatch,
+        qualifiedTeams: winners.map(id => {
+          const team = winnerMap[id];
+          return { id: team.id, name: team.team_name };
+        })
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Generate match schedule
 export const generateMatchSchedule = async (req, res, next) => {
   try {
-    const { startDate, venue, daysBetweenRounds } = req.body;
+    const { startDate, endDate, venue, daysBetweenRounds } = req.body;
+    
+    // Validate date range
+    if (!startDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Start date is required'
+      });
+    }
+    
+    const start = new Date(startDate);
+    const end = endDate ? new Date(endDate) : null;
+    
+    if (end && end < start) {
+      return res.status(400).json({
+        success: false,
+        message: 'End date must be after start date'
+      });
+    }
     
     // Get all teams
     const [teams] = await pool.execute('SELECT id, team_name FROM teams ORDER BY id');
@@ -529,15 +794,29 @@ export const generateMatchSchedule = async (req, res, next) => {
     }
     
     const matches = [];
-    let currentDate = new Date(startDate);
+    let currentDate = new Date(start);
     // Set to first available time slot (7PM on start date)
     currentDate = getNextTimeSlot(currentDate);
+    
+    // Helper to check if date is within range
+    const isDateInRange = (date) => {
+      if (!end) return true; // No end date, continue indefinitely
+      const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const endOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      return dateOnly <= endOnly;
+    };
     
     // Generate qualifying round matches (round-robin within each pool)
     const generateRoundRobin = (poolTeams, poolName) => {
       const poolMatches = [];
       for (let i = 0; i < poolTeams.length; i++) {
         for (let j = i + 1; j < poolTeams.length; j++) {
+          // Check if we're still within the date range
+          if (!isDateInRange(currentDate)) {
+            // If we've exceeded the end date, stop generating matches
+            break;
+          }
+          
           poolMatches.push({
             team1_id: poolTeams[i].id,
             team2_id: poolTeams[j].id,
@@ -546,8 +825,23 @@ export const generateMatchSchedule = async (req, res, next) => {
             round_type: 'Qualifying',
             pool: poolName
           });
+          
           // Get next available time slot (30-minute intervals, 7PM-10PM)
-          currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
+          const nextSlot = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
+          
+          // If next slot is on a new day and we have an end date, check if it's still in range
+          if (end && nextSlot.getDate() !== currentDate.getDate()) {
+            if (!isDateInRange(nextSlot)) {
+              // We've run out of dates in the range
+              break;
+            }
+          }
+          
+          currentDate = nextSlot;
+        }
+        // Break outer loop if we've exceeded the date range
+        if (end && !isDateInRange(currentDate)) {
+          break;
         }
       }
       return poolMatches;
@@ -599,6 +893,11 @@ export const generateMatchSchedule = async (req, res, next) => {
           const team1 = pair[0];
           const team2 = pair[1];
           
+          // Check if we're still within the date range
+          if (end && !isDateInRange(currentDate)) {
+            break;
+          }
+          
           // Check if this exact match already exists (we allow rematches for balancing)
           // But we'll add it as a new match anyway to balance the count
           matches.push({
@@ -609,8 +908,14 @@ export const generateMatchSchedule = async (req, res, next) => {
             round_type: 'Qualifying',
             pool: smallerPool
           });
+          
           // Get next available time slot (30-minute intervals, 7PM-10PM)
-          currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
+          const nextSlot = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
+          if (end && nextSlot.getDate() !== currentDate.getDate() && !isDateInRange(nextSlot)) {
+            break;
+          }
+          
+          currentDate = nextSlot;
           matchesAdded++;
           pairIndex++;
         }
@@ -626,15 +931,24 @@ export const generateMatchSchedule = async (req, res, next) => {
     // Note: Quarter Finals, Semi Finals, and Final will be scheduled after qualifying results
     // This is just the qualifying round schedule
     
+    // Calculate date range info
+    const dateRangeInfo = {
+      startDate: startDate,
+      endDate: endDate || null,
+      totalDays: end ? Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1 : null,
+      matchesScheduled: matches.length
+    };
+    
     res.json({
       success: true,
-      message: 'Match schedule generated successfully',
+      message: `Match schedule generated successfully${end ? ` for ${dateRangeInfo.totalDays} day(s)` : ''}. ${matches.length} matches scheduled.`,
       data: {
         matches,
         poolA: poolA.map(t => ({ id: t.id, name: t.team_name })),
         poolB: poolB.map(t => ({ id: t.id, name: t.team_name })),
         poolDifference,
-        additionalMatch: additionalMatchInfo
+        additionalMatch: additionalMatchInfo,
+        dateRange: dateRangeInfo
       }
     });
   } catch (error) {

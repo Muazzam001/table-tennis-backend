@@ -9,7 +9,9 @@ import {
   updateMatchResult,
   getTeamStandings,
   generateMatchSchedule,
-  generateQuarterFinals
+  generateQuarterFinals,
+  generateSemiFinals,
+  generateFinal
 } from '../controllers/matchController.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
 
@@ -34,6 +36,8 @@ router.post('/', matchValidation, handleValidationErrors, createMatch);
 router.post('/multiple', createMultipleMatches);
 router.post('/generate-schedule', generateMatchSchedule);
 router.post('/generate-quarter-finals', generateQuarterFinals);
+router.post('/generate-semi-finals', generateSemiFinals);
+router.post('/generate-final', generateFinal);
 router.put('/:id/result', updateMatchResult);
 
 export default router;
