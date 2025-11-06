@@ -4,13 +4,15 @@ import {
   getAllTeams,
   getTeamById,
   createTeam,
+  updateTeam,
+  deleteTeam,
   generateRandomTeams
 } from '../controllers/teamController.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
 
 const router = express.Router();
 
-// Validation rules
+// Validation rules for creating a team
 const teamValidation = [
   body('team_name').trim().notEmpty().withMessage('Team name is required'),
   body('player1_id').isInt().withMessage('Player 1 ID must be a valid integer'),
@@ -18,10 +20,12 @@ const teamValidation = [
 ];
 
 // Routes
-router.get('/', getAllTeams);
-router.get('/:id', getTeamById);
-router.post('/', teamValidation, handleValidationErrors, createTeam);
-router.post('/generate', generateRandomTeams);
+router.get('/', getAllTeams);                           // Get all teams
+router.get('/:id', getTeamById);                        // Get team by ID
+router.post('/', teamValidation, handleValidationErrors, createTeam);  // Create new team
+router.put('/:id', handleValidationErrors, updateTeam); // Update team
+router.delete('/:id', deleteTeam);                      // Delete team
+router.post('/generate', generateRandomTeams);          // Generate random teams
 
 export default router;
 
