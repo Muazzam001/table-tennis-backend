@@ -14,3 +14,4 @@ router.get('/team/:teamId', getTeamStatistics);
 
 export default router;
 
+
