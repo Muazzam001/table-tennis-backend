@@ -12,6 +12,55 @@ const formatDateForMySQL = (date) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
+// Helper function to get next available time slot (7PM-10PM, 30-minute intervals)
+// Returns a date object with the next available slot
+// Maximum 6 matches per day (7:00 PM, 7:30 PM, 8:00 PM, 8:30 PM, 9:00 PM, 9:30 PM)
+// Each match is 30 minutes long
+const getNextTimeSlot = (currentDate) => {
+  const slot = new Date(currentDate);
+  
+  // Get current hour and minute
+  const currentHour = slot.getHours();
+  const currentMinute = slot.getMinutes();
+  
+  // If current time is before 7PM, set to 7PM on the same day
+  if (currentHour < 19) {
+    slot.setHours(19, 0, 0, 0);
+    return slot;
+  }
+  
+  // If current time is 10PM or later, move to next day at 7PM
+  if (currentHour >= 22) {
+    slot.setDate(slot.getDate() + 1);
+    slot.setHours(19, 0, 0, 0);
+    return slot;
+  }
+  
+  // Calculate next 30-minute slot within 7PM-10PM window
+  // Available slots: 19:00, 19:30, 20:00, 20:30, 21:00, 21:30
+  let nextHour = currentHour;
+  let nextMinute = 0;
+  
+  // If current minute is 0, next slot is :30 of same hour
+  // If current minute is 30, next slot is :00 of next hour
+  if (currentMinute < 30) {
+    nextMinute = 30;
+  } else {
+    nextMinute = 0;
+    nextHour += 1;
+  }
+  
+  // If next slot is 10PM or later, move to next day at 7PM
+  if (nextHour >= 22) {
+    slot.setDate(slot.getDate() + 1);
+    slot.setHours(19, 0, 0, 0);
+    return slot;
+  }
+  
+  slot.setHours(nextHour, nextMinute, 0, 0);
+  return slot;
+};
+
 // Get all matches
 export const getAllMatches = async (req, res, next) => {
   try {
@@ -405,7 +454,8 @@ export const generateQuarterFinals = async (req, res, next) => {
     
     const matches = [];
     let currentDate = new Date(startDate || new Date());
-    currentDate.setHours(10, 0, 0, 0);
+    // Set to first available time slot (7PM on start date)
+    currentDate = getNextTimeSlot(currentDate);
     
     for (const match of quarterFinalMatches) {
       matches.push({
@@ -416,7 +466,8 @@ export const generateQuarterFinals = async (req, res, next) => {
         round_type: 'Quarter Final',
         pool: null
       });
-      currentDate.setDate(currentDate.getDate() + 1);
+      // Get next available time slot (30-minute intervals, 7PM-10PM)
+      currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
     }
     
     // Insert matches into database
@@ -479,8 +530,8 @@ export const generateMatchSchedule = async (req, res, next) => {
     
     const matches = [];
     let currentDate = new Date(startDate);
-    // Set default time to 10:00 AM if not specified
-    currentDate.setHours(10, 0, 0, 0);
+    // Set to first available time slot (7PM on start date)
+    currentDate = getNextTimeSlot(currentDate);
     
     // Generate qualifying round matches (round-robin within each pool)
     const generateRoundRobin = (poolTeams, poolName) => {
@@ -495,8 +546,8 @@ export const generateMatchSchedule = async (req, res, next) => {
             round_type: 'Qualifying',
             pool: poolName
           });
-          // Increment date by 1 day for next match
-          currentDate.setDate(currentDate.getDate() + 1);
+          // Get next available time slot (30-minute intervals, 7PM-10PM)
+          currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
         }
       }
       return poolMatches;
@@ -558,7 +609,8 @@ export const generateMatchSchedule = async (req, res, next) => {
             round_type: 'Qualifying',
             pool: smallerPool
           });
-          currentDate.setDate(currentDate.getDate() + 1);
+          // Get next available time slot (30-minute intervals, 7PM-10PM)
+          currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
           matchesAdded++;
           pairIndex++;
         }

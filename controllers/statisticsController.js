@@ -69,4 +69,74 @@ export const getTeamStatistics = async (req, res, next) => {
   }
 };
 
+// Get dashboard statistics (overview stats for homepage)
+export const getDashboardStats = async (req, res, next) => {
+  try {
+    // Get total active players
+    const [playerCount] = await pool.execute(
+      'SELECT COUNT(*) as count FROM players WHERE is_active = TRUE'
+    );
+    
+    // Get total teams
+    const [teamCount] = await pool.execute(
+      'SELECT COUNT(*) as count FROM teams'
+    );
+    
+    // Get total matches
+    const [matchCount] = await pool.execute(
+      'SELECT COUNT(*) as count FROM matches'
+    );
+    
+    // Get completed matches
+    const [completedMatches] = await pool.execute(
+      "SELECT COUNT(*) as count FROM matches WHERE status = 'Completed'"
+    );
+    
+    // Get upcoming matches (scheduled but not completed)
+    const [upcomingMatches] = await pool.execute(
+      "SELECT COUNT(*) as count FROM matches WHERE status != 'Completed' OR status IS NULL"
+    );
+    
+    // Get players by expertise level
+    const [expertiseStats] = await pool.execute(
+      `SELECT 
+        expertise_level, 
+        COUNT(*) as count 
+      FROM players 
+      WHERE is_active = TRUE 
+      GROUP BY expertise_level`
+    );
+    
+    // Get matches by round type
+    const [roundStats] = await pool.execute(
+      `SELECT 
+        round_type, 
+        COUNT(*) as count 
+      FROM matches 
+      GROUP BY round_type`
+    );
+    
+    res.json({
+      success: true,
+      data: {
+        totalPlayers: playerCount[0]?.count || 0,
+        totalTeams: teamCount[0]?.count || 0,
+        totalMatches: matchCount[0]?.count || 0,
+        completedMatches: completedMatches[0]?.count || 0,
+        upcomingMatches: upcomingMatches[0]?.count || 0,
+        expertiseLevels: expertiseStats.reduce((acc, stat) => {
+          acc[stat.expertise_level] = stat.count;
+          return acc;
+        }, {}),
+        matchesByRound: roundStats.reduce((acc, stat) => {
+          acc[stat.round_type] = stat.count;
+          return acc;
+        }, {})
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
