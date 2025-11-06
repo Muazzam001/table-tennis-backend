@@ -23,6 +23,10 @@ export const getAllTeams = async (req, res, next) => {
     `);
     res.json({ success: true, data: rows });
   } catch (error) {
+    // Handle table not found errors gracefully
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      return res.json({ success: true, data: [] });
+    }
     next(error);
   }
 };

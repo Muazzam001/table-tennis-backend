@@ -10,6 +10,10 @@ export const getAllPlayers = async (req, res, next) => {
     // Send success response with player data
     res.json({ success: true, data: rows });
   } catch (error) {
+    // Handle table not found errors gracefully
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      return res.json({ success: true, data: [] });
+    }
     // If error occurs, pass it to error handler middleware
     next(error);
   }

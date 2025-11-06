@@ -123,6 +123,10 @@ export const getAllMatches = async (req, res, next) => {
     `);
     res.json({ success: true, data: rows });
   } catch (error) {
+    // Handle table not found errors gracefully
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      return res.json({ success: true, data: [] });
+    }
     next(error);
   }
 };
@@ -144,6 +148,10 @@ export const getMatchesByRound = async (req, res, next) => {
     `, [roundType]);
     res.json({ success: true, data: rows });
   } catch (error) {
+    // Handle table not found errors gracefully
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      return res.json({ success: true, data: [] });
+    }
     next(error);
   }
 };
@@ -169,6 +177,10 @@ export const getMatchById = async (req, res, next) => {
     
     res.json({ success: true, data: rows[0] });
   } catch (error) {
+    // Handle table not found errors gracefully
+    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      return res.status(404).json({ success: false, message: 'Match not found' });
+    }
     next(error);
   }
 };
@@ -188,9 +200,47 @@ export const createMatch = async (req, res, next) => {
       formattedDate = formatDateForMySQL(new Date(scheduled_date));
     }
     
+    // Normalize team IDs: always store smaller ID as team1_id to ensure unique constraint works
+    const normalizedTeam1Id = team1_id < team2_id ? team1_id : team2_id;
+    const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
+    
+    // Check for duplicate match between same teams (same round_type and pool)
+    // Since we normalize, we only need to check one order
+    const [existingMatches] = await pool.execute(
+      `SELECT id FROM matches 
+       WHERE team1_id = ? AND team2_id = ?
+       AND round_type = ? 
+       AND (pool = ? OR (pool IS NULL AND ? IS NULL))
+       AND status != 'Cancelled'`,
+      [normalizedTeam1Id, normalizedTeam2Id, round_type || 'Qualifying', pool, pool]
+    );
+    
+    if (existingMatches.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'A match between these teams already exists for this round and pool' 
+      });
+    }
+    
+    // Check for time slot conflict (same scheduled_date and venue)
+    const [conflictingMatches] = await pool.execute(
+      `SELECT id, team1_id, team2_id FROM matches 
+       WHERE scheduled_date = ? 
+       AND venue = ? 
+       AND status != 'Cancelled'`,
+      [formattedDate, venue || 'Main Court']
+    );
+    
+    if (conflictingMatches.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Time slot conflict: Another match is already scheduled at ${formattedDate} at ${venue || 'Main Court'}` 
+      });
+    }
+    
     const [result] = await pool.execute(
       'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool) VALUES (?, ?, ?, ?, ?, ?)',
-      [team1_id, team2_id, formattedDate, venue, round_type || 'Qualifying', pool || null]
+      [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', pool || null]
     );
     
     res.status(201).json({
@@ -199,6 +249,13 @@ export const createMatch = async (req, res, next) => {
       data: { id: result.insertId, team1_id, team2_id, scheduled_date: formattedDate, venue, round_type, pool }
     });
   } catch (error) {
+    // Handle duplicate entry error from database
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'A match with these exact details already exists' 
+      });
+    }
     next(error);
   }
 };
@@ -236,9 +293,13 @@ export const createMultipleMatches = async (req, res, next) => {
         formattedDate = formatDateForMySQL(new Date(scheduled_date));
       }
       
+      // Normalize team IDs: always store smaller ID as team1_id
+      const normalizedTeam1Id = team1_id < team2_id ? team1_id : team2_id;
+      const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
+      
       const [result] = await pool.execute(
         'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool) VALUES (?, ?, ?, ?, ?, ?)',
-        [team1_id, team2_id, formattedDate, venue, round_type || 'Qualifying', poolName || null]
+        [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', poolName || null]
       );
       
       createdMatches.push({
@@ -485,9 +546,13 @@ export const generateQuarterFinals = async (req, res, next) => {
     currentDate = getNextTimeSlot(currentDate);
     
     for (const match of quarterFinalMatches) {
+      // Normalize team IDs: always store smaller ID as team1_id
+      const normalizedTeam1Id = match.team1.id < match.team2.id ? match.team1.id : match.team2.id;
+      const normalizedTeam2Id = match.team1.id < match.team2.id ? match.team2.id : match.team1.id;
+      
       matches.push({
-        team1_id: match.team1.id,
-        team2_id: match.team2.id,
+        team1_id: normalizedTeam1Id,
+        team2_id: normalizedTeam2Id,
         scheduled_date: formatDateForMySQL(currentDate),
         venue: venue || 'Main Court',
         round_type: 'Quarter Final',
@@ -603,9 +668,13 @@ export const generateSemiFinals = async (req, res, next) => {
     currentDate = getNextTimeSlot(currentDate);
     
     for (const match of semiFinalMatches) {
+      // Normalize team IDs: always store smaller ID as team1_id
+      const normalizedTeam1Id = match.team1.id < match.team2.id ? match.team1.id : match.team2.id;
+      const normalizedTeam2Id = match.team1.id < match.team2.id ? match.team2.id : match.team1.id;
+      
       matches.push({
-        team1_id: match.team1.id,
-        team2_id: match.team2.id,
+        team1_id: normalizedTeam1Id,
+        team2_id: normalizedTeam2Id,
         scheduled_date: formatDateForMySQL(currentDate),
         venue: venue || 'Main Court',
         round_type: 'Semi Final',
@@ -710,9 +779,13 @@ export const generateFinal = async (req, res, next) => {
     
     // Generate Final match
     // SF1 winner vs SF2 winner
+    // Normalize team IDs: always store smaller ID as team1_id
+    const normalizedTeam1Id = winners[0] < winners[1] ? winners[0] : winners[1];
+    const normalizedTeam2Id = winners[0] < winners[1] ? winners[1] : winners[0];
+    
     const finalMatch = {
-      team1_id: winners[0],
-      team2_id: winners[1],
+      team1_id: normalizedTeam1Id,
+      team2_id: normalizedTeam2Id,
       scheduled_date: formatDateForMySQL(getNextTimeSlot(new Date(startDate || new Date()))),
       venue: venue || 'Main Court',
       round_type: 'Final',
