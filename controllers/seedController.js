@@ -360,20 +360,18 @@ const ensureDatabaseAndTables = async () => {
         FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
 
-      `CREATE TABLE IF NOT EXISTS match_details (
+      `CREATE TABLE IF NOT EXISTS users (
         id INT PRIMARY KEY AUTO_INCREMENT,
-        match_id INT NOT NULL,
-        team_id INT NOT NULL,
-        sets_won INT DEFAULT 0,
-        sets_lost INT DEFAULT 0,
-        games_won INT DEFAULT 0,
-        games_lost INT DEFAULT 0,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'user') DEFAULT 'user',
+        is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_match (match_id),
-        INDEX idx_team (team_id),
-        UNIQUE KEY unique_match_team (match_id, team_id),
-        FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE,
-        FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_username (username),
+        INDEX idx_email (email),
+        INDEX idx_role (role)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
     ];
 
@@ -1116,5 +1114,6 @@ export const seedTeamsAndMatches = async (req, res, next) => {
     next(error);
   }
 };
+
 
 
