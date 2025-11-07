@@ -2,9 +2,9 @@ import mysql from 'mysql2/promise';
 import 'dotenv/config';
 
 // Validate required environment variables (check raw env vars before parsing)
+// DB_PORT is optional - defaults to MySQL default port 3306
 const requiredEnvVars = {
   DB_HOST: process.env.DB_HOST,
-  DB_PORT: process.env.DB_PORT,
   DB_USER: process.env.DB_USER,
   DB_PASS: process.env.DB_PASS, // Note: empty string is valid for MySQL (no password)
   DB_NAME: process.env.DB_NAME
@@ -33,11 +33,17 @@ if (missingVars.length > 0) {
   process.exit(1);
 }
 
-// Parse and validate port
-const dbPort = parseInt(process.env.DB_PORT);
-if (isNaN(dbPort) || dbPort <= 0 || dbPort > 65535) {
-  console.error(`Invalid DB_PORT value: "${process.env.DB_PORT}". Must be a number between 1 and 65535.`);
-  process.exit(1);
+// Parse and validate port (optional - defaults to 3306)
+const dbPortStr = process.env.DB_PORT;
+let dbPort = 3306; // MySQL default port
+
+if (dbPortStr) {
+  const parsedPort = parseInt(dbPortStr);
+  if (isNaN(parsedPort) || parsedPort <= 0 || parsedPort > 65535) {
+    console.error(`Invalid DB_PORT value: "${dbPortStr}". Must be a number between 1 and 65535.`);
+    process.exit(1);
+  }
+  dbPort = parsedPort;
 }
 
 const dbHost = process.env.DB_HOST;
@@ -48,7 +54,6 @@ const dbName = process.env.DB_NAME;
 // Create connection pool
 const pool = mysql.createPool({
   host: dbHost,
-  port: dbPort,
   user: dbUser,
   password: dbPass,
   database: dbName,
@@ -98,8 +103,8 @@ if (typeof pool.execute !== 'function') {
 pool.getConnection()
   .then(connection => {
     console.log('✓ Database connected successfully');
-    console.log(`  Host: ${dbHost}:${dbPort}`);
-    // console.log(`  Database: ${dbName}`);
+    console.log(`  Host: ${dbHost}:${dbPort}${dbPortStr ? '' : ' (default - DB_PORT not set)'}`);
+    console.log(`  Database: ${dbName}`);
     connection.release();
   })
   .catch(err => {
