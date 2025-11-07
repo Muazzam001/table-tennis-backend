@@ -125,12 +125,12 @@ const migrateExistingTables = async (connection, dbName) => {
        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'matches'`,
       [dbName]
     );
-    
+
     if (tables.length === 0) {
       // Table doesn't exist, CREATE TABLE already handled it
       return;
     }
-    
+
     // Table exists, check for missing columns and add them
     const migrations = [
       {
@@ -150,7 +150,7 @@ const migrateExistingTables = async (connection, dbName) => {
         sql: `ALTER TABLE matches ADD COLUMN abandoned_reason TEXT NULL AFTER is_abandoned`
       }
     ];
-    
+
     for (const migration of migrations) {
       try {
         const [columns] = await connection.query(
@@ -158,11 +158,11 @@ const migrateExistingTables = async (connection, dbName) => {
            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'matches' AND COLUMN_NAME = ?`,
           [dbName, migration.column]
         );
-        
+
         if (columns.length === 0) {
           console.log(`Adding missing column: ${migration.column}`);
           await connection.query(migration.sql);
-          
+
           // Add index for round_type and pool if they were just added
           if (migration.column === 'round_type') {
             try {
@@ -184,7 +184,7 @@ const migrateExistingTables = async (connection, dbName) => {
         // Continue with other migrations
       }
     }
-    
+
     // Add unique constraint to prevent duplicate matches (if it doesn't exist)
     try {
       const [constraints] = await connection.query(
@@ -192,7 +192,7 @@ const migrateExistingTables = async (connection, dbName) => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'matches' AND CONSTRAINT_NAME = 'unique_match_teams_round_pool'`,
         [dbName]
       );
-      
+
       if (constraints.length === 0) {
         console.log('Adding unique constraint to prevent duplicate matches');
         // Note: This constraint only works if teams are stored in consistent order
@@ -247,10 +247,30 @@ const getConnectionErrorMessage = (error) => {
 const ensureDatabaseAndTables = async () => {
   let connection = null;
   try {
-    const dbName = process.env.DB_NAME || 'table_tennis_tournament';
-    const dbHost = process.env.DB_HOST || 'localhost';
-    const dbPort = parseInt(process.env.DB_PORT) || 3306;
-    const dbUser = process.env.DB_USER || 'root';
+    // Validate required environment variables
+    const dbName = process.env.DB_NAME;
+    const dbHost = process.env.DB_HOST;
+    const dbPortStr = process.env.DB_PORT;
+    const dbUser = process.env.DB_USER;
+    const dbPass = process.env.DB_PASS;
+
+    // Check for missing variables
+    const missingVars = [];
+    if (!dbHost) missingVars.push('DB_HOST');
+    if (!dbPortStr) missingVars.push('DB_PORT');
+    if (!dbUser) missingVars.push('DB_USER');
+    if (dbPass === undefined || dbPass === null) missingVars.push('DB_PASS'); // Allow empty string
+    if (!dbName) missingVars.push('DB_NAME');
+
+    if (missingVars.length > 0) {
+      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}. Please set them in your .env file.`);
+    }
+
+    // Validate and parse port
+    const dbPort = parseInt(dbPortStr);
+    if (isNaN(dbPort) || dbPort <= 0 || dbPort > 65535) {
+      throw new Error(`Invalid DB_PORT value: "${dbPortStr}". Must be a number between 1 and 65535.`);
+    }
 
     console.log(`Attempting to connect to MySQL at ${dbHost}:${dbPort} as ${dbUser}...`);
 
@@ -260,7 +280,7 @@ const ensureDatabaseAndTables = async () => {
         host: dbHost,
         port: dbPort,
         user: dbUser,
-        password: process.env.DB_PASSWORD || '',
+        password: dbPass || '', // Allow empty password
         multipleStatements: true,
         connectTimeout: 10000 // 10 second timeout
       });
@@ -644,38 +664,38 @@ export const seedTeamsAndMatches = async (req, res, next) => {
       const matches = [];
       const matchStartDate = startDate ? new Date(startDate) : new Date();
       const matchEndDate = endDate ? new Date(endDate) : null;
-      
+
       // Track used time slots to prevent conflicts (format: "YYYY-MM-DD HH:MM:SS")
       const usedTimeSlots = new Set();
-      
+
       // Track team pairs per pool to prevent duplicates (format: "pool-team1_id-team2_id")
       const usedTeamPairsByPool = {
         'A': new Set(),
         'B': new Set()
       };
-      
+
       // Helper function to get unique team pair key (normalized, pool-specific)
       const getTeamPairKey = (team1Id, team2Id, poolName) => {
         const normalizedKey = team1Id < team2Id ? `${team1Id}-${team2Id}` : `${team2Id}-${team1Id}`;
         return `${poolName}-${normalizedKey}`;
       };
-      
+
       // Helper function to get next unique time slot
       const getNextUniqueTimeSlot = (startDate) => {
         let slot = getNextTimeSlot(startDate);
         const maxAttempts = 1000; // Prevent infinite loop
         let attempts = 0;
-        
+
         while (usedTimeSlots.has(formatDateForMySQL(slot)) && attempts < maxAttempts) {
           // Move to next 30-minute slot
           slot = getNextTimeSlot(new Date(slot.getTime() + 30 * 60 * 1000));
           attempts++;
         }
-        
+
         if (attempts >= maxAttempts) {
           throw new Error('Unable to find available time slot. Too many matches scheduled.');
         }
-        
+
         return slot;
       };
 
@@ -696,20 +716,20 @@ export const seedTeamsAndMatches = async (req, res, next) => {
            AND pool IN ('A', 'B')
            AND status != 'Cancelled'`
         );
-        
+
         for (const existingMatch of existingMatches) {
           // Normalize team IDs for comparison
-          const normalizedTeam1Id = existingMatch.team1_id < existingMatch.team2_id 
-            ? existingMatch.team1_id 
+          const normalizedTeam1Id = existingMatch.team1_id < existingMatch.team2_id
+            ? existingMatch.team1_id
             : existingMatch.team2_id;
-          const normalizedTeam2Id = existingMatch.team1_id < existingMatch.team2_id 
-            ? existingMatch.team2_id 
+          const normalizedTeam2Id = existingMatch.team1_id < existingMatch.team2_id
+            ? existingMatch.team2_id
             : existingMatch.team1_id;
           const poolName = existingMatch.pool;
           const matchKey = getTeamPairKey(normalizedTeam1Id, normalizedTeam2Id, poolName);
           existingMatchesByPool[poolName].add(matchKey);
         }
-        
+
         console.log(`Found ${existingMatchesByPool['A'].size} existing matches in Pool A`);
         console.log(`Found ${existingMatchesByPool['B'].size} existing matches in Pool B`);
       } catch (error) {
@@ -724,7 +744,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
         const poolMatchPairs = [];
         const poolUsedPairs = usedTeamPairsByPool[poolName];
         const existingPoolMatches = existingMatchesByPool[poolName];
-        
+
         for (let i = 0; i < poolTeams.length; i++) {
           for (let j = i + 1; j < poolTeams.length; j++) {
             const team1Id = poolTeams[i].id;
@@ -733,7 +753,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
             const normalizedTeam1Id = team1Id < team2Id ? team1Id : team2Id;
             const normalizedTeam2Id = team1Id < team2Id ? team2Id : team1Id;
             const pairKey = getTeamPairKey(normalizedTeam1Id, normalizedTeam2Id, poolName);
-            
+
             // Skip if this team pair already has a match in database
             if (existingPoolMatches.has(pairKey)) {
               console.log(`Skipping existing match in Pool ${poolName}: Team ${normalizedTeam1Id} vs Team ${normalizedTeam2Id}`);
@@ -741,7 +761,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
               poolUsedPairs.add(pairKey);
               continue;
             }
-            
+
             // Skip if this team pair already has a match in this pool (in current batch)
             if (poolUsedPairs.has(pairKey)) {
               console.log(`Skipping duplicate match in Pool ${poolName}: Team ${normalizedTeam1Id} vs Team ${normalizedTeam2Id}`);
@@ -753,7 +773,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
               team2_id: normalizedTeam2Id,
               pool: poolName
             });
-            
+
             // Mark this team pair as used in this pool
             poolUsedPairs.add(pairKey);
           }
@@ -764,14 +784,14 @@ export const seedTeamsAndMatches = async (req, res, next) => {
       // Generate all match pairs first (without time slots)
       const poolAMatchPairs = generateRoundRobinPairs(poolA, 'A');
       const poolBMatchPairs = generateRoundRobinPairs(poolB, 'B');
-      
+
       console.log(`Generated ${poolAMatchPairs.length} match pairs for Pool A`);
       console.log(`Generated ${poolBMatchPairs.length} match pairs for Pool B`);
-      
+
       // Now assign time slots sequentially to all matches (alternating between pools for fairness)
       let currentDate = getNextTimeSlot(matchStartDate);
       const allMatchPairs = [];
-      
+
       // Interleave matches from both pools to ensure fair time slot distribution
       const maxPairs = Math.max(poolAMatchPairs.length, poolBMatchPairs.length);
       for (let i = 0; i < maxPairs; i++) {
@@ -782,18 +802,18 @@ export const seedTeamsAndMatches = async (req, res, next) => {
           allMatchPairs.push({ ...poolBMatchPairs[i], pool: 'B' });
         }
       }
-      
+
       // Assign time slots to all matches
       const poolAMatches = [];
       const poolBMatches = [];
-      
+
       // Track matches in memory to prevent duplicates in the array itself
       const matchesInMemory = new Set(); // Format: "pool-team1_id-team2_id"
       const getMatchKey = (team1Id, team2Id, poolName) => {
         const normalizedKey = team1Id < team2Id ? `${team1Id}-${team2Id}` : `${team2Id}-${team1Id}`;
         return `${poolName}-${normalizedKey}`;
       };
-      
+
       for (const matchPair of allMatchPairs) {
         // Check if we're still within the date range
         if (matchEndDate && !isDateInRange(currentDate)) {
@@ -811,7 +831,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
         // Get unique time slot
         currentDate = getNextUniqueTimeSlot(currentDate);
         const scheduledDate = formatDateForMySQL(currentDate);
-        
+
         // Skip if this time slot is already used (shouldn't happen with getNextUniqueTimeSlot, but double-check)
         if (usedTimeSlots.has(scheduledDate)) {
           console.log(`Time slot conflict detected: ${scheduledDate}, finding next available slot`);
@@ -822,7 +842,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
         // Normalize team IDs: always store smaller ID as team1_id to ensure unique constraint works
         const normalizedTeam1Id = matchPair.team1_id < matchPair.team2_id ? matchPair.team1_id : matchPair.team2_id;
         const normalizedTeam2Id = matchPair.team1_id < matchPair.team2_id ? matchPair.team2_id : matchPair.team1_id;
-        
+
         const match = {
           team1_id: normalizedTeam1Id,
           team2_id: normalizedTeam2Id,
@@ -831,11 +851,11 @@ export const seedTeamsAndMatches = async (req, res, next) => {
           round_type: 'Qualifying',
           pool: matchPair.pool
         };
-        
+
         // Mark time slot and match as used
         usedTimeSlots.add(scheduledDate);
         matchesInMemory.add(matchKey);
-        
+
         // Add to appropriate pool array
         if (matchPair.pool === 'A') {
           poolAMatches.push(match);
@@ -858,15 +878,15 @@ export const seedTeamsAndMatches = async (req, res, next) => {
       // Each team plays exactly one match with every other team in the same pool
       const expectedPoolAMatches = (poolA.length * (poolA.length - 1)) / 2;
       const expectedPoolBMatches = (poolB.length * (poolB.length - 1)) / 2;
-      
+
       // Calculate total match counts (newly generated + existing)
       const totalPoolAMatches = poolAMatches.length + existingMatchesByPool['A'].size;
       const totalPoolBMatches = poolBMatches.length + existingMatchesByPool['B'].size;
-      
+
       // Calculate match counts for newly generated matches only
       const poolAMatchCount = poolAMatches.length;
       const poolBMatchCount = poolBMatches.length;
-      
+
       console.log(`Pool A: ${poolA.length} teams, expected ${expectedPoolAMatches} matches (round-robin), existing ${existingMatchesByPool['A'].size}, generating ${poolAMatchCount}`);
       console.log(`Pool B: ${poolB.length} teams, expected ${expectedPoolBMatches} matches (round-robin), existing ${existingMatchesByPool['B'].size}, generating ${poolBMatchCount}`);
 
@@ -875,18 +895,18 @@ export const seedTeamsAndMatches = async (req, res, next) => {
       // If pools have different team counts, balance to the larger pool's match count
       let additionalMatchInfo = null;
       const poolTeamCountDifference = Math.abs(poolA.length - poolB.length);
-      
+
       // Only add rematches if pools have different team counts
       if (poolTeamCountDifference > 0) {
         const smallerPool = poolA.length < poolB.length ? 'A' : 'B';
         const smallerPoolTeams = poolA.length < poolB.length ? poolA : poolB;
         const largerPoolExpectedMatches = poolA.length > poolB.length ? expectedPoolAMatches : expectedPoolBMatches;
         const smallerPoolExpectedMatches = poolA.length < poolB.length ? expectedPoolAMatches : expectedPoolBMatches;
-        
+
         // Calculate how many matches the smaller pool currently has (existing + new)
         const smallerPoolTotalMatches = poolA.length < poolB.length ? totalPoolAMatches : totalPoolBMatches;
         const largerPoolTotalMatches = poolA.length > poolB.length ? totalPoolAMatches : totalPoolBMatches;
-        
+
         // Additional matches needed to balance to the larger pool's expected count
         const additionalMatchesNeeded = largerPoolExpectedMatches - smallerPoolTotalMatches;
 
@@ -919,14 +939,14 @@ export const seedTeamsAndMatches = async (req, res, next) => {
             const normalizedTeam1Id = team1.id < team2.id ? team1.id : team2.id;
             const normalizedTeam2Id = team1.id < team2.id ? team2.id : team1.id;
             const pairKey = getTeamPairKey(normalizedTeam1Id, normalizedTeam2Id, smallerPool);
-            
+
             // Skip if this team pair already has a match in database
             if (existingSmallerPoolMatches.has(pairKey)) {
               console.log(`Skipping existing rematch in Pool ${smallerPool}: Team ${normalizedTeam1Id} vs Team ${normalizedTeam2Id} (already exists)`);
               pairIndex++;
               continue;
             }
-            
+
             // Skip if this team pair already has a match in this pool (in current batch)
             if (usedTeamPairsByPool[smallerPool].has(pairKey)) {
               console.log(`Skipping duplicate rematch in Pool ${smallerPool}: Team ${normalizedTeam1Id} vs Team ${normalizedTeam2Id}`);
@@ -937,7 +957,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
             // Get unique time slot
             currentDate = getNextUniqueTimeSlot(currentDate);
             const scheduledDate = formatDateForMySQL(currentDate);
-            
+
             // Skip if this time slot is already used
             if (usedTimeSlots.has(scheduledDate)) {
               console.log(`Skipping duplicate time slot in rematch: ${scheduledDate}`);
@@ -954,7 +974,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
               round_type: 'Qualifying',
               pool: smallerPool
             });
-            
+
             // Mark this team pair and time slot as used
             usedTeamPairsByPool[smallerPool].add(pairKey);
             usedTimeSlots.add(scheduledDate);
@@ -991,7 +1011,7 @@ export const seedTeamsAndMatches = async (req, res, next) => {
         const normalizedKey = team1Id < team2Id ? `${team1Id}-${team2Id}` : `${team2Id}-${team1Id}`;
         return `${poolName}-${normalizedKey}`;
       };
-      
+
       for (const match of matches) {
         try {
           // Check for duplicate in current batch
@@ -1000,11 +1020,11 @@ export const seedTeamsAndMatches = async (req, res, next) => {
             console.log(`Skipping duplicate match in batch: Pool ${match.pool} - Team ${match.team1_id} vs Team ${match.team2_id}`);
             continue;
           }
-          
+
           // Normalize team IDs for duplicate check (matches are already normalized, but ensure consistency)
           const normalizedTeam1Id = match.team1_id < match.team2_id ? match.team1_id : match.team2_id;
           const normalizedTeam2Id = match.team1_id < match.team2_id ? match.team2_id : match.team1_id;
-          
+
           // Check for duplicate match in database before inserting
           // Since we normalize, we only need to check one order
           const [existingMatches] = await safeExecute(
@@ -1015,12 +1035,12 @@ export const seedTeamsAndMatches = async (req, res, next) => {
              AND status != 'Cancelled'`,
             [normalizedTeam1Id, normalizedTeam2Id, match.round_type, match.pool, match.pool]
           );
-          
+
           if (existingMatches.length > 0) {
             console.log(`Skipping duplicate match in database: Pool ${match.pool} - Team ${match.team1_id} vs Team ${match.team2_id} (already exists)`);
             continue;
           }
-          
+
           // Check for time slot conflict before inserting
           const [conflictingMatches] = await safeExecute(
             `SELECT id FROM matches 
@@ -1029,18 +1049,18 @@ export const seedTeamsAndMatches = async (req, res, next) => {
              AND status != 'Cancelled'`,
             [match.scheduled_date, match.venue]
           );
-          
+
           if (conflictingMatches.length > 0) {
             console.log(`Skipping time slot conflict: ${match.scheduled_date} at ${match.venue} (already booked)`);
             continue;
           }
-          
+
           // Insert with normalized team IDs (matches are already normalized, but ensure consistency)
           await safeExecute(
             'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool) VALUES (?, ?, ?, ?, ?, ?)',
             [normalizedTeam1Id, normalizedTeam2Id, match.scheduled_date, match.venue, match.round_type, match.pool]
           );
-          
+
           // Mark as inserted
           insertedMatches.add(insertedKey);
           matchesCreated++;
@@ -1058,19 +1078,19 @@ export const seedTeamsAndMatches = async (req, res, next) => {
       // Recalculate final match counts after balancing (newly generated only)
       const finalPoolAMatches = matches.filter(m => m.pool === 'A').length;
       const finalPoolBMatches = matches.filter(m => m.pool === 'B').length;
-      
+
       // Calculate final total match counts (existing + newly generated)
       const finalTotalPoolAMatches = finalPoolAMatches + existingMatchesByPool['A'].size;
       const finalTotalPoolBMatches = finalPoolBMatches + existingMatchesByPool['B'].size;
-      
+
       // Verify round-robin completeness - each pool should have exactly n*(n-1)/2 matches
       const poolAComplete = finalTotalPoolAMatches === expectedPoolAMatches;
       const poolBComplete = finalTotalPoolBMatches === expectedPoolBMatches;
-      
+
       console.log(`Final verification:`);
       console.log(`  Pool A: ${poolA.length} teams → Expected: ${expectedPoolAMatches} matches → Actual: ${finalTotalPoolAMatches} matches ${poolAComplete ? '✓' : '✗'}`);
       console.log(`  Pool B: ${poolB.length} teams → Expected: ${expectedPoolBMatches} matches → Actual: ${finalTotalPoolBMatches} matches ${poolBComplete ? '✓' : '✗'}`);
-      
+
       scheduleInfo = {
         totalMatches: matchesCreated,
         poolA: {
@@ -1092,8 +1112,8 @@ export const seedTeamsAndMatches = async (req, res, next) => {
         poolDifference: poolTeamCountDifference,
         additionalMatch: additionalMatchInfo,
         // Matches are balanced if: same team count → same match count, OR different team count → balanced via rematches
-        matchesBalanced: poolTeamCountDifference === 0 
-          ? finalTotalPoolAMatches === finalTotalPoolBMatches 
+        matchesBalanced: poolTeamCountDifference === 0
+          ? finalTotalPoolAMatches === finalTotalPoolBMatches
           : (finalTotalPoolAMatches === expectedPoolAMatches && finalTotalPoolBMatches === expectedPoolBMatches)
       };
     }

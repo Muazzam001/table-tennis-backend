@@ -126,7 +126,7 @@ Create a `.env` file in the `backend/` directory:
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=your_password
+DB_PASS=your_password
 DB_NAME=table_tennis_tournament
 
 # Server Configuration
@@ -472,7 +472,7 @@ sudo systemctl start table-tennis-backend
    ```env
    DB_HOST=localhost
    DB_USER=root
-   DB_PASSWORD=your_password
+   DB_PASS=your_password
    ```
 
 3. **Test connection:**
