@@ -8,6 +8,7 @@ import {
   deleteTeam,
   generateRandomTeams
 } from '../controllers/teamController.js';
+import { authenticate, isAdmin } from '../middlewares/auth.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
 
 const router = express.Router();
@@ -19,13 +20,15 @@ const teamValidation = [
   body('player2_id').isInt().withMessage('Player 2 ID must be a valid integer')
 ];
 
-// Routes
-router.get('/', getAllTeams);                           // Get all teams
-router.get('/:id', getTeamById);                        // Get team by ID
-router.post('/', teamValidation, handleValidationErrors, createTeam);  // Create new team
-router.put('/:id', handleValidationErrors, updateTeam); // Update team
-router.delete('/:id', deleteTeam);                      // Delete team
-router.post('/generate', generateRandomTeams);          // Generate random teams
+// Public routes (read-only for all users)
+router.get('/', getAllTeams);
+router.get('/:id', getTeamById);
+
+// Admin-only routes (CRUD operations)
+router.post('/', authenticate, isAdmin, teamValidation, handleValidationErrors, createTeam);
+router.put('/:id', authenticate, isAdmin, handleValidationErrors, updateTeam);
+router.delete('/:id', authenticate, isAdmin, deleteTeam);
+router.post('/generate', authenticate, isAdmin, generateRandomTeams);
 
 export default router;
 

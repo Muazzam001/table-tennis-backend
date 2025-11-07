@@ -7,6 +7,7 @@ import {
   updatePlayer,
   deletePlayer
 } from '../controllers/playerController.js';
+import { authenticate, isAdmin } from '../middlewares/auth.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
 
 const router = express.Router();
@@ -18,12 +19,14 @@ const playerValidation = [
   body('expertise_level').isIn(['Intermediate', 'Expert']).withMessage('Expertise level must be Intermediate or Expert')
 ];
 
-// Routes
+// Public routes (read-only for all users)
 router.get('/', getAllPlayers);
 router.get('/:id', getPlayerById);
-router.post('/', playerValidation, handleValidationErrors, createPlayer);
-router.put('/:id', handleValidationErrors, updatePlayer);
-router.delete('/:id', deletePlayer);
+
+// Admin-only routes (CRUD operations)
+router.post('/', authenticate, isAdmin, playerValidation, handleValidationErrors, createPlayer);
+router.put('/:id', authenticate, isAdmin, handleValidationErrors, updatePlayer);
+router.delete('/:id', authenticate, isAdmin, deletePlayer);
 
 export default router;
 

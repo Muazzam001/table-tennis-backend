@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 import { errorHandler } from './middlewares/errorHandler.js';
+import authRoutes from './routes/authRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
 import playerRoutes from './routes/playerRoutes.js';
 import seedRoutes from './routes/seedRoutes.js';
@@ -19,6 +20,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/players', playerRoutes);
 app.use('/api/teams', teamRoutes);
 app.use('/api/matches', matchRoutes);

@@ -13,6 +13,7 @@ import {
   generateSemiFinals,
   generateFinal
 } from '../controllers/matchController.js';
+import { authenticate, isAdmin } from '../middlewares/auth.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
 
 const router = express.Router();
@@ -27,18 +28,22 @@ const matchValidation = [
   body('pool').optional().isIn(['A', 'B'])
 ];
 
-// Routes
+// Public routes (read-only for all users)
 router.get('/', getAllMatches);
 router.get('/round/:roundType', getMatchesByRound);
 router.get('/standings', getTeamStandings);
 router.get('/:id', getMatchById);
-router.post('/', matchValidation, handleValidationErrors, createMatch);
-router.post('/multiple', createMultipleMatches);
-router.post('/generate-schedule', generateMatchSchedule);
-router.post('/generate-quarter-finals', generateQuarterFinals);
-router.post('/generate-semi-finals', generateSemiFinals);
-router.post('/generate-final', generateFinal);
-router.put('/:id/result', updateMatchResult);
+
+// Admin-only routes (CRUD operations)
+router.post('/', authenticate, isAdmin, matchValidation, handleValidationErrors, createMatch);
+router.post('/multiple', authenticate, isAdmin, createMultipleMatches);
+router.post('/generate-schedule', authenticate, isAdmin, generateMatchSchedule);
+router.post('/generate-quarter-finals', authenticate, isAdmin, generateQuarterFinals);
+router.post('/generate-semi-finals', authenticate, isAdmin, generateSemiFinals);
+router.post('/generate-final', authenticate, isAdmin, generateFinal);
+router.put('/:id/result', authenticate, isAdmin, updateMatchResult);
 
 export default router;
+
+
 
