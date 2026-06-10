@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "node --watch server.js",
     "start": "node server.js",
-    "create-admin": "node scripts/createAdmin.js"
+    "create-admin": "node scripts/createAdmin.js",
+    "seed": "node scripts/reseed.js",
+    "reseed": "node scripts/reseed.js"
   },
   "dependencies": {
     "express": "^4.18.2",

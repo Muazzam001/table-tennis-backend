@@ -11,7 +11,8 @@ import {
   generateMatchSchedule,
   generateQuarterFinals,
   generateSemiFinals,
-  generateFinal
+  generateFinal,
+  generateThirdPlace
 } from '../controllers/matchController.js';
 import { authenticate, isAdmin } from '../middlewares/auth.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
@@ -24,8 +25,8 @@ const matchValidation = [
   body('team2_id').isInt().withMessage('Team 2 ID must be a valid integer'),
   body('scheduled_date').isISO8601().withMessage('Scheduled date must be a valid ISO 8601 date'),
   body('venue').optional().trim(),
-  body('round_type').optional().isIn(['Qualifying', 'Quarter Final', 'Semi Final', 'Final']),
-  body('pool').optional().isIn(['A', 'B'])
+  body('round_type').optional().isIn(['Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place']),
+  body('pool').optional().isString().isLength({ min: 1, max: 5 })
 ];
 
 // Public routes (read-only for all users)
@@ -41,6 +42,7 @@ router.post('/generate-schedule', authenticate, isAdmin, generateMatchSchedule);
 router.post('/generate-quarter-finals', authenticate, isAdmin, generateQuarterFinals);
 router.post('/generate-semi-finals', authenticate, isAdmin, generateSemiFinals);
 router.post('/generate-final', authenticate, isAdmin, generateFinal);
+router.post('/generate-third-place', authenticate, isAdmin, generateThirdPlace);
 router.put('/:id/result', authenticate, isAdmin, updateMatchResult);
 
 export default router;

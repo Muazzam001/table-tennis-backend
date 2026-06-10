@@ -16,7 +16,8 @@ const router = express.Router();
 const playerValidation = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required'),
-  body('expertise_level').isIn(['Intermediate', 'Expert']).withMessage('Expertise level must be Intermediate or Expert')
+  body('expertise_level').isIn(['Intermediate', 'Expert']).withMessage('Expertise level must be Intermediate or Expert'),
+  body('category').optional().isIn(['Men', 'Women']).withMessage('Category must be Men or Women'),
 ];
 
 // Public routes (read-only for all users)

@@ -47,19 +47,19 @@ export const getPlayerById = async (req, res, next) => {
 export const createPlayer = async (req, res, next) => {
   try {
     // Get player data from request body (sent from frontend)
-    const { name, email, expertise_level } = req.body;
+    const { name, email, expertise_level, category } = req.body;
     
-    // Insert new player into database
+    // Insert new player into database (category defaults to 'Men' if not provided)
     const [result] = await pool.execute(
-      'INSERT INTO players (name, email, expertise_level) VALUES (?, ?, ?)',
-      [name, email, expertise_level]
+      'INSERT INTO players (name, email, expertise_level, category) VALUES (?, ?, ?, ?)',
+      [name, email, expertise_level, category || 'Men']
     );
     
     // Return success response with created player info
     res.status(201).json({
       success: true,
       message: 'Player created successfully',
-      data: { id: result.insertId, name, email, expertise_level }
+      data: { id: result.insertId, name, email, expertise_level, category: category || 'Men' }
     });
   } catch (error) {
     // If email already exists, return specific error message
@@ -78,7 +78,7 @@ export const updatePlayer = async (req, res, next) => {
   try {
     // Get player ID from URL and update data from request body
     const { id } = req.params;
-    const { name, email, expertise_level, is_active } = req.body;
+    const { name, email, expertise_level, category, is_active } = req.body;
     
     // Build update query dynamically (only update fields that are provided)
     const updateFields = [];
@@ -95,6 +95,10 @@ export const updatePlayer = async (req, res, next) => {
     if (expertise_level !== undefined) {
       updateFields.push('expertise_level = ?');
       values.push(expertise_level);
+    }
+    if (category !== undefined) {
+      updateFields.push('category = ?');
+      values.push(category);
     }
     if (is_active !== undefined) {
       updateFields.push('is_active = ?');
@@ -141,6 +145,7 @@ export const deletePlayer = async (req, res, next) => {
     next(error);
   }
 };
+
 
 
 

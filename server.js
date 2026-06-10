@@ -7,6 +7,8 @@ import playerRoutes from './routes/playerRoutes.js';
 import seedRoutes from './routes/seedRoutes.js';
 import statisticsRoutes from './routes/statisticsRoutes.js';
 import teamRoutes from './routes/teamRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
+import tournamentRoutes from './routes/tournamentRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT;
@@ -26,6 +28,8 @@ app.use('/api/teams', teamRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/statistics', statisticsRoutes);
 app.use('/api/seed', seedRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/tournament', tournamentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

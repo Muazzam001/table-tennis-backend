@@ -26,10 +26,12 @@ This is the backend API for the Table Tennis Tournament Management System. It pr
 - **RESTful API** - Clean, consistent API design
 - **Player Management** - Full CRUD operations for players
 - **Team Management** - Create teams with validation (one Intermediate + one Expert)
-- **Match Management** - Schedule matches, record results, generate rounds
-- **Statistics** - Player and team statistics tracking
+- **Tournament Engine** - Flexible group + knockout (`shared/tournament/`)
+- **Match Management** - Schedule, results, auto knockout progression
+- **Statistics** - Dashboard and live group standings
 - **Authentication** - JWT-based authentication
-- **Database Seeding** - Automated database setup and seeding
+- **Admin Reset** - Clear tournament data, preserve users
+- **Database Seeding** - Automated setup, migration, and demo seed
 - **Error Handling** - Comprehensive error handling middleware
 - **Validation** - Request validation using express-validator
 - **CORS** - Configurable CORS support
@@ -54,8 +56,13 @@ backend/
 │   ├── playerController.js
 │   ├── teamController.js
 │   ├── matchController.js
+│   ├── tournamentController.js
+│   ├── adminController.js
 │   ├── statisticsController.js
 │   └── seedController.js
+├── services/             # Tournament business services
+│   ├── tournamentService.js
+│   └── matchProgressionService.js
 ├── middlewares/          # Custom middlewares
 │   ├── auth.js          # JWT authentication middleware
 │   ├── errorHandler.js  # Global error handler
@@ -65,6 +72,8 @@ backend/
 │   ├── playerRoutes.js
 │   ├── teamRoutes.js
 │   ├── matchRoutes.js
+│   ├── tournamentRoutes.js
+│   ├── adminRoutes.js
 │   ├── statisticsRoutes.js
 │   └── seedRoutes.js
 ├── scripts/             # Utility scripts

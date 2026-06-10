@@ -64,11 +64,25 @@ const createAdmin = async () => {
     );
 
     if (existing.length > 0) {
+      const resetPassword = process.argv.includes('--reset');
+      if (resetPassword) {
+        const password_hash = await bcrypt.hash(password, 10);
+        await pool.execute(
+          'UPDATE users SET password_hash = ?, email = ?, role = ? WHERE id = ?',
+          [password_hash, email, role, existing[0].id]
+        );
+        console.log('✅ Admin password reset successfully!');
+        console.log(`   User ID: ${existing[0].id}`);
+        console.log(`\n📋 Login Credentials:`);
+        console.log(`   Username: ${username}`);
+        console.log(`   Email: ${email}`);
+        console.log(`   Password: ${password}`);
+        return;
+      }
+
       console.log('⚠️  Admin user already exists!');
       console.log(`   Existing user ID: ${existing[0].id}`);
-      console.log(`   You can login with:`);
-      console.log(`   Username: ${username}`);
-      console.log(`   Password: ${password}`);
+      console.log(`   To reset the password, run: npm run create-admin -- --reset`);
       return;
     }
 
