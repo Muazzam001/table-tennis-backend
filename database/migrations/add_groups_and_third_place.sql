@@ -1,0 +1,2 @@
+-- DEPRECATED: Use database/migrations/003_add_third_place_and_extend_round_type.sql
+-- and database/migrations/004_pool_varchar.sql

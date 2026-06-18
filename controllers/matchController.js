@@ -5,110 +5,55 @@ import {
   countQualifyingMatches,
   calculateGroupStandings,
   getQualifiedTeams,
-  generateCrossoverQuarterFinalPairings,
-  generateLegacyQuarterFinalPairings,
+  generateFirstKnockoutPairings,
   generateFinalPairingFromQuarterFinals,
-  generateThirdPlaceFromQuarterFinals,
+  resolveThirdPlacePairing,
+  resolveQualifiersPerGroup,
+  getFullGroupStandings,
+  generateSingleGroupThirdPlacePairing,
   resolveTournamentConfig,
   buildConfigFromCounts,
   scheduleFixtures,
   validateDateRangeForMatches,
-} from '../../shared/tournament/index.js';
-import { tryAutoProgressKnockout } from '../services/matchProgressionService.js';
-import { getGroupsFromMatches, detectFormat } from '../services/tournamentService.js';
+  inferSingleGroupTeamCount,
+} from '@shared/tournament/index.js';
+import {
+  formatDateForMySQL,
+  resolveTimeSlotConfig,
+  resolveCourtConfig,
+  createMatchSlotCursor,
+} from '@shared/tournament/scheduling.js';
+import { tryAutoProgressKnockout, ensureThirdPlaceMatch } from '../services/matchProgressionService.js';
+import { getGroupsFromMatches, detectFormat, countPlayersForLeague } from '../services/tournamentService.js';
 
-// Helper function to format date for MySQL (YYYY-MM-DD HH:MM:SS)
-const formatDateForMySQL = (date) => {
-  const d = new Date(date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
-  const seconds = String(d.getSeconds()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+const parseTimeSlotConfigFromBody = (body = {}) => {
+  const { timeSlotConfig } = body;
+  if (!timeSlotConfig) {
+    return resolveTimeSlotConfig();
+  }
+  return resolveTimeSlotConfig(timeSlotConfig);
 };
 
-// Helper function to check if a date is a weekend (Saturday = 6, Sunday = 0)
-const isWeekend = (date) => {
-  const day = date.getDay();
-  return day === 0 || day === 6; // Sunday or Saturday
-};
-
-// Helper function to skip weekends and move to next weekday
-const skipWeekends = (date) => {
-  let currentDate = new Date(date);
-  while (isWeekend(currentDate)) {
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
-  return currentDate;
-};
-
-// Helper function to get next available time slot (7PM-10PM, 30-minute intervals)
-// Returns a date object with the next available slot
-// Maximum 6 matches per day (7:00 PM, 7:30 PM, 8:00 PM, 8:30 PM, 9:00 PM, 9:30 PM)
-// Each match is 30 minutes long
-// Excludes weekends (Saturday and Sunday)
-const getNextTimeSlot = (currentDate) => {
-  let slot = new Date(currentDate);
-  
-  // Skip weekends first
-  slot = skipWeekends(slot);
-  
-  // Get current hour and minute
-  const currentHour = slot.getHours();
-  const currentMinute = slot.getMinutes();
-  
-  // If current time is before 7PM, set to 7PM on the same day
-  if (currentHour < 19) {
-    slot.setHours(19, 0, 0, 0);
-    // Check if this is a weekend after setting time
-    if (isWeekend(slot)) {
-      slot.setDate(slot.getDate() + 1);
-      slot = skipWeekends(slot);
-      slot.setHours(19, 0, 0, 0);
-    }
-    return slot;
-  }
-  
-  // If current time is 10PM or later, move to next weekday at 7PM
-  if (currentHour >= 22) {
-    slot.setDate(slot.getDate() + 1);
-    slot = skipWeekends(slot);
-    slot.setHours(19, 0, 0, 0);
-    return slot;
-  }
-  
-  // Calculate next 30-minute slot within 7PM-10PM window
-  // Available slots: 19:00, 19:30, 20:00, 20:30, 21:00, 21:30
-  let nextHour = currentHour;
-  let nextMinute = 0;
-  
-  // If current minute is 0, next slot is :30 of same hour
-  // If current minute is 30, next slot is :00 of next hour
-  if (currentMinute < 30) {
-    nextMinute = 30;
-  } else {
-    nextMinute = 0;
-    nextHour += 1;
-  }
-  
-  // If next slot is 10PM or later, move to next weekday at 7PM
-  if (nextHour >= 22) {
-    slot.setDate(slot.getDate() + 1);
-    slot = skipWeekends(slot);
-    slot.setHours(19, 0, 0, 0);
-    return slot;
-  }
-  
-  slot.setHours(nextHour, nextMinute, 0, 0);
-  return slot;
+const parseCourtConfigFromBody = (body = {}) => {
+  const { courtConfig, courtCount } = body;
+  return resolveCourtConfig({
+    courtCount: courtConfig?.courtCount ?? courtCount,
+    venueBase: courtConfig?.venueBase ?? body.venue,
+  });
 };
 
 // Get all matches
 export const getAllMatches = async (req, res, next) => {
   try {
     const { league } = req.query;
+    if (league) {
+      try {
+        await ensureThirdPlaceMatch(pool, league);
+      } catch (healError) {
+        console.error('Third place auto-heal skipped:', healError.message);
+      }
+    }
+
     let whereClause = '';
     const params = [];
     if (league) {
@@ -307,16 +252,15 @@ export const createMatch = async (req, res, next) => {
   }
 };
 
-// Create multiple matches at once
+// Create multiple matches at once (optional league scopes and validates inserts)
 export const createMultipleMatches = async (req, res, next) => {
   try {
-    const { matches } = req.body; // Array of match objects
+    const { matches, league: requestedLeague } = req.body;
     
     if (!Array.isArray(matches) || matches.length === 0) {
       return res.status(400).json({ success: false, message: 'Matches array is required' });
     }
     
-    // Verify pool is available
     if (!pool || typeof pool.execute !== 'function') {
       console.error('Pool error:', { pool, hasExecute: typeof pool?.execute });
       return res.status(500).json({ 
@@ -328,13 +272,20 @@ export const createMultipleMatches = async (req, res, next) => {
     const createdMatches = [];
     
     for (const match of matches) {
-      const { team1_id, team2_id, scheduled_date, venue, round_type, pool: poolName } = match;
+      const {
+        team1_id,
+        team2_id,
+        scheduled_date,
+        venue,
+        round_type,
+        pool: poolName,
+        league: matchLeague,
+      } = match;
       
       if (team1_id === team2_id) {
-        continue; // Skip invalid matches
+        continue;
       }
       
-      // Validate teams and league
       const [team1Rows] = await pool.execute('SELECT id, league FROM teams WHERE id = ?', [team1_id]);
       const [team2Rows] = await pool.execute('SELECT id, league FROM teams WHERE id = ?', [team2_id]);
       if (team1Rows.length === 0 || team2Rows.length === 0) {
@@ -345,24 +296,37 @@ export const createMultipleMatches = async (req, res, next) => {
         continue;
       }
 
-      // Format date for MySQL if it's in ISO format
+      const resolvedLeague = matchLeague || requestedLeague || teamLeague;
+      if (resolvedLeague !== teamLeague) {
+        return res.status(400).json({
+          success: false,
+          message: `Team league (${teamLeague}) does not match requested league (${resolvedLeague}).`,
+        });
+      }
+      if (requestedLeague && resolvedLeague !== requestedLeague) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot create ${resolvedLeague} match while scoped to ${requestedLeague} league.`,
+        });
+      }
+
       let formattedDate = scheduled_date;
       if (scheduled_date && scheduled_date.includes('T')) {
         formattedDate = formatDateForMySQL(new Date(scheduled_date));
       }
       
-      // Normalize team IDs: always store smaller ID as team1_id
       const normalizedTeam1Id = team1_id < team2_id ? team1_id : team2_id;
       const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
       
       const [result] = await pool.execute(
         'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', poolName || null, teamLeague]
+        [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', poolName || null, resolvedLeague]
       );
       
       createdMatches.push({
         id: result.insertId,
-        ...match
+        ...match,
+        league: resolvedLeague,
       });
     }
     
@@ -510,6 +474,20 @@ export const generateQuarterFinals = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'League is required to generate Quarter Finals' });
     }
 
+    let timeSlotConfig;
+    try {
+      timeSlotConfig = parseTimeSlotConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
+    let courtConfig;
+    try {
+      courtConfig = parseCourtConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
     const [existingQF] = await pool.execute(
       "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Quarter Final' AND league = ?",
       [league]
@@ -528,25 +506,31 @@ export const generateQuarterFinals = async (req, res, next) => {
     const groups = await getGroupsFromMatches(pool, league);
     const format = detectFormat(allMatches, groups);
     const groupOrder = Object.keys(groups).sort();
-    const qualifiersPerGroup = format === 'pools-2' ? 4 : 2;
+    const teamCount = inferSingleGroupTeamCount(allMatches, format) ?? groupOrder.reduce(
+      (sum, id) => sum + (groups[id]?.length || 0),
+      0
+    );
+    const qualifiersPerGroup = resolveQualifiersPerGroup(teamCount, groupOrder.length, format);
     const qualified = getQualifiedTeams(groups, allMatches, qualifiersPerGroup);
 
-    const pairings =
-      format === 'pools-2'
-        ? generateLegacyQuarterFinalPairings(qualified.A || [], qualified.B || [])
-        : generateCrossoverQuarterFinalPairings(qualified, groupOrder);
+    const { roundType, pairings } = generateFirstKnockoutPairings(
+      qualified,
+      groupOrder,
+      format,
+      teamCount
+    );
 
-    let currentDate = getNextTimeSlot(new Date(startDate || new Date()));
+    const slotCursor = createMatchSlotCursor(startDate || new Date(), timeSlotConfig, courtConfig);
     const createdMatches = [];
 
     for (const pairing of pairings) {
       const normalizedTeam1Id = pairing.team1.id < pairing.team2.id ? pairing.team1.id : pairing.team2.id;
       const normalizedTeam2Id = pairing.team1.id < pairing.team2.id ? pairing.team2.id : pairing.team1.id;
-      const scheduled = formatDateForMySQL(currentDate);
+      const { scheduled_date: scheduled, venue: matchVenue } = slotCursor.getNext();
 
       const [result] = await pool.execute(
         'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [normalizedTeam1Id, normalizedTeam2Id, scheduled, venue || 'Main Court', 'Quarter Final', null, league]
+        [normalizedTeam1Id, normalizedTeam2Id, scheduled, matchVenue, roundType, null, league]
       );
 
       createdMatches.push({
@@ -554,19 +538,78 @@ export const generateQuarterFinals = async (req, res, next) => {
         team1_id: normalizedTeam1Id,
         team2_id: normalizedTeam2Id,
         scheduled_date: scheduled,
-        venue: venue || 'Main Court',
-        round_type: 'Quarter Final',
+        venue: matchVenue,
+        round_type: roundType,
         label: pairing.label,
         league,
       });
-
-      currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
     }
+
+    if (roundType === 'Final' && format === 'single-group' && teamCount === 4) {
+      const [existingThird] = await pool.execute(
+        "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND league = ?",
+        [league]
+      );
+      if (existingThird[0].count === 0) {
+        const fullStandings = getFullGroupStandings(groups, allMatches, groupOrder[0]);
+        const thirdPairing = generateSingleGroupThirdPlacePairing(fullStandings);
+        const normalizedTeam1Id =
+          thirdPairing.team1.id < thirdPairing.team2.id
+            ? thirdPairing.team1.id
+            : thirdPairing.team2.id;
+        const normalizedTeam2Id =
+          thirdPairing.team1.id < thirdPairing.team2.id
+            ? thirdPairing.team2.id
+            : thirdPairing.team1.id;
+        const { scheduled_date: scheduled, venue: matchVenue } = slotCursor.getNext();
+
+        const [thirdResult] = await pool.execute(
+          'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [
+            normalizedTeam1Id,
+            normalizedTeam2Id,
+            scheduled,
+            matchVenue,
+            'Third Place',
+            null,
+            league,
+          ]
+        );
+
+        createdMatches.push({
+          id: thirdResult.insertId,
+          team1_id: normalizedTeam1Id,
+          team2_id: normalizedTeam2Id,
+          scheduled_date: scheduled,
+          venue: matchVenue,
+          round_type: 'Third Place',
+          label: thirdPairing.label,
+          league,
+        });
+      }
+    } else if (roundType === 'Final') {
+      try {
+        await ensureThirdPlaceMatch(pool, league);
+      } catch (progressError) {
+        console.error('Third place auto-creation skipped:', progressError.message);
+      }
+    }
+
+    const thirdPlaceCreated = createdMatches.some((m) => m.round_type === 'Third Place');
+    const roundLabel =
+      roundType === 'Final' ? 'Final' : roundType === 'Semi Final' ? 'Semi Finals' : 'Quarter Finals';
 
     res.json({
       success: true,
-      message: 'Quarter Finals generated successfully',
-      data: { matches: createdMatches, qualifiedTeams: qualified, format },
+      message: thirdPlaceCreated
+        ? `${roundLabel} and Third Place matches generated successfully`
+        : `${roundLabel} generated successfully`,
+      data: {
+        matches: createdMatches,
+        qualifiedTeams: qualified,
+        format,
+        roundType,
+      },
     });
   } catch (error) {
     next(error);
@@ -579,6 +622,20 @@ export const generateSemiFinals = async (req, res, next) => {
     const { startDate, venue, league } = req.body;
     if (!league) {
       return res.status(400).json({ success: false, message: 'League is required to generate Semi Finals' });
+    }
+
+    let timeSlotConfig;
+    try {
+      timeSlotConfig = parseTimeSlotConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
+    let courtConfig;
+    try {
+      courtConfig = parseCourtConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
     }
     
     // Check if Quarter Finals exist and are all completed
@@ -658,26 +715,23 @@ export const generateSemiFinals = async (req, res, next) => {
     ];
     
     const matches = [];
-    let currentDate = new Date(startDate || new Date());
-    // Set to first available time slot (7PM on start date)
-    currentDate = getNextTimeSlot(currentDate);
+    const slotCursor = createMatchSlotCursor(startDate || new Date(), timeSlotConfig, courtConfig);
     
     for (const match of semiFinalMatches) {
       // Normalize team IDs: always store smaller ID as team1_id
       const normalizedTeam1Id = match.team1.id < match.team2.id ? match.team1.id : match.team2.id;
       const normalizedTeam2Id = match.team1.id < match.team2.id ? match.team2.id : match.team1.id;
+      const slot = slotCursor.getNext();
       
       matches.push({
         team1_id: normalizedTeam1Id,
         team2_id: normalizedTeam2Id,
-        scheduled_date: formatDateForMySQL(currentDate),
-        venue: venue || 'Main Court',
+        scheduled_date: slot.scheduled_date,
+        venue: slot.venue,
         round_type: 'Semi Final',
         pool: null,
         league
       });
-      // Get next available time slot (30-minute intervals, 7PM-10PM)
-      currentDate = getNextTimeSlot(new Date(currentDate.getTime() + 30 * 60 * 1000));
     }
     
     // Insert matches into database
@@ -715,6 +769,20 @@ export const generateFinal = async (req, res, next) => {
     const { startDate, venue, league } = req.body;
     if (!league) {
       return res.status(400).json({ success: false, message: 'League is required to generate Final' });
+    }
+
+    let timeSlotConfig;
+    try {
+      timeSlotConfig = parseTimeSlotConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
+    let courtConfig;
+    try {
+      courtConfig = parseCourtConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
     }
     
     const [semiFinals] = await pool.execute(
@@ -785,11 +853,12 @@ export const generateFinal = async (req, res, next) => {
       winnerMap[team.id] = team;
     });
     
+    const finalSlot = createMatchSlotCursor(startDate || new Date(), timeSlotConfig, courtConfig).getNext();
     const finalMatch = {
       team1_id: normalizedTeam1Id,
       team2_id: normalizedTeam2Id,
-      scheduled_date: formatDateForMySQL(getNextTimeSlot(new Date(startDate || new Date()))),
-      venue: venue || 'Main Court',
+      scheduled_date: finalSlot.scheduled_date,
+      venue: finalSlot.venue,
       round_type: 'Final',
       pool: null,
       league
@@ -805,16 +874,31 @@ export const generateFinal = async (req, res, next) => {
       id: result.insertId,
       ...finalMatch
     };
-    
+
+    let progression = null;
+    try {
+      const thirdPlace = await ensureThirdPlaceMatch(pool, league);
+      if (thirdPlace.created) {
+        progression = { progressed: true, round: 'Third Place', matches: thirdPlace.matches };
+      }
+    } catch (progressError) {
+      console.error('Third place auto-creation skipped:', progressError.message);
+    }
+
+    const thirdPlaceCreated = progression?.matches?.length > 0;
+
     res.json({
       success: true,
-      message: 'Final generated successfully',
+      message: thirdPlaceCreated
+        ? 'Final and Third Place matches generated successfully'
+        : 'Final generated successfully',
       data: {
         match: createdMatch,
         qualifiedTeams: winners.map(id => {
           const team = winnerMap[id];
           return { id: team.id, name: team.team_name };
-        })
+        }),
+        progression,
       }
     });
   } catch (error) {
@@ -842,6 +926,20 @@ export const generateMatchSchedule = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Start date is required' });
     }
 
+    let timeSlotConfig;
+    try {
+      timeSlotConfig = parseTimeSlotConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
+    let courtConfig;
+    try {
+      courtConfig = parseCourtConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
     const start = new Date(startDate);
     const end = endDate ? new Date(endDate) : null;
     if (end && end < start) {
@@ -854,6 +952,7 @@ export const generateMatchSchedule = async (req, res, next) => {
     );
 
     const teamCount = teams.length;
+    const playerCount = await countPlayersForLeague(pool, league);
 
     const [existingQualifying] = await pool.execute(
       "SELECT COUNT(*) as count FROM matches WHERE league = ? AND round_type = 'Qualifying'",
@@ -894,8 +993,8 @@ export const generateMatchSchedule = async (req, res, next) => {
           });
         }
         config = groupCount
-          ? buildConfigFromCounts(teamCount, groupCount)
-          : resolveTournamentConfig(teamCount);
+          ? buildConfigFromCounts(teamCount, groupCount, { playerCount })
+          : resolveTournamentConfig(teamCount, groupCount, playerCount);
       }
     } catch (configError) {
       return res.status(400).json({ success: false, message: configError.message });
@@ -905,7 +1004,13 @@ export const generateMatchSchedule = async (req, res, next) => {
     const groups = distributeIntoGroups(participants, config.groupCount);
     const fixtures = generateGroupStageMatches(groups).map((f) => ({ ...f, league }));
     const expectedMatchCount = countQualifyingMatches(teamCount, config.groupCount);
-    const rangeCheck = validateDateRangeForMatches(startDate, endDate, expectedMatchCount);
+    const rangeCheck = validateDateRangeForMatches(
+      startDate,
+      endDate,
+      expectedMatchCount,
+      timeSlotConfig,
+      courtConfig
+    );
     if (!rangeCheck.ok) {
       return res.status(400).json({
         success: false,
@@ -923,8 +1028,58 @@ export const generateMatchSchedule = async (req, res, next) => {
       fixtures,
       startDate,
       venue || 'Main Court',
-      endDate
+      endDate,
+      timeSlotConfig,
+      courtConfig
     );
+
+    const createdMatches = [];
+    for (const match of matches) {
+      const { team1_id, team2_id, scheduled_date, round_type, pool: poolName } = match;
+      if (team1_id === team2_id) continue;
+
+      const [team1Rows] = await pool.execute(
+        'SELECT id, league FROM teams WHERE id = ? AND league = ?',
+        [team1_id, league]
+      );
+      const [team2Rows] = await pool.execute(
+        'SELECT id, league FROM teams WHERE id = ? AND league = ?',
+        [team2_id, league]
+      );
+      if (team1Rows.length === 0 || team2Rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Schedule fixture references teams outside ${league} league. Regenerate teams for this league and try again.`,
+        });
+      }
+
+      const normalizedTeam1Id = team1_id < team2_id ? team1_id : team2_id;
+      const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
+
+      const [result] = await pool.execute(
+        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          normalizedTeam1Id,
+          normalizedTeam2Id,
+          scheduled_date,
+          match.venue || venue || 'Main Court',
+          round_type || 'Qualifying',
+          poolName || null,
+          league,
+        ]
+      );
+
+      createdMatches.push({
+        id: result.insertId,
+        team1_id: normalizedTeam1Id,
+        team2_id: normalizedTeam2Id,
+        scheduled_date,
+        venue: match.venue || venue || 'Main Court',
+        round_type: round_type || 'Qualifying',
+        pool: poolName || null,
+        league,
+      });
+    }
 
     const groupSummary = Object.fromEntries(
       Object.entries(groups).map(([id, groupTeams]) => [
@@ -935,9 +1090,9 @@ export const generateMatchSchedule = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: `Group stage schedule generated. ${matches.length} qualifying matches across ${config.groupCount} groups (${config.groupSize} teams each).`,
+      message: `Group stage schedule generated for ${league} league. ${createdMatches.length} qualifying matches across ${config.groupCount} groups (${config.groupSize} teams each).`,
       data: {
-        matches,
+        matches: createdMatches,
         groups: groupSummary,
         config,
         format: config.format,
@@ -947,9 +1102,9 @@ export const generateMatchSchedule = async (req, res, next) => {
           startDate,
           endDate: endDate || null,
           totalDays: end ? Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1 : null,
-          matchesScheduled: matches.length,
-          firstMatch: matches[0]?.scheduled_date ?? null,
-          lastMatch: matches[matches.length - 1]?.scheduled_date ?? null,
+          matchesScheduled: createdMatches.length,
+          firstMatch: createdMatches[0]?.scheduled_date ?? null,
+          lastMatch: createdMatches[createdMatches.length - 1]?.scheduled_date ?? null,
         },
         league,
       },
@@ -965,6 +1120,20 @@ export const generateThirdPlace = async (req, res, next) => {
     const { startDate, venue, league } = req.body;
     if (!league) {
       return res.status(400).json({ success: false, message: 'League is required' });
+    }
+
+    let timeSlotConfig;
+    try {
+      timeSlotConfig = parseTimeSlotConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
+    }
+
+    let courtConfig;
+    try {
+      courtConfig = parseCourtConfigFromBody(req.body);
+    } catch (configError) {
+      return res.status(400).json({ success: false, message: configError.message });
     }
 
     const [existing] = await pool.execute(
@@ -1004,8 +1173,7 @@ export const generateThirdPlace = async (req, res, next) => {
           message: 'Complete all Semi Final matches before generating Third Place match.',
         });
       }
-      const { generateThirdPlacePairing } = await import('../../shared/tournament/knockout.js');
-      pairing = generateThirdPlacePairing(semiFinals);
+      pairing = resolveThirdPlacePairing({ semiFinals });
     } else if (quarterFinals.length === 2) {
       const incomplete = quarterFinals.filter((m) => m.status !== 'Completed' || !m.winner_team_id);
       if (incomplete.length > 0) {
@@ -1014,20 +1182,59 @@ export const generateThirdPlace = async (req, res, next) => {
           message: 'Complete both Quarter Final matches before generating Third Place match.',
         });
       }
-      pairing = generateThirdPlaceFromQuarterFinals(quarterFinals);
+      pairing = resolveThirdPlacePairing({ quarterFinals });
     } else {
-      return res.status(400).json({
-        success: false,
-        message: 'Complete Semi Finals or both Quarter Finals before generating Third Place match.',
-      });
+      const [allMatches] = await pool.execute(
+        "SELECT * FROM matches WHERE league = ? AND round_type = 'Qualifying'",
+        [league]
+      );
+      const incompleteQualifying = allMatches.filter(
+        (m) => m.status !== 'Completed' || !m.winner_team_id
+      );
+      if (incompleteQualifying.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Complete all qualifying matches before generating Third Place match.',
+        });
+      }
+
+      const [existingFinal] = await pool.execute(
+        "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final' AND league = ?",
+        [league]
+      );
+      if (existingFinal[0].count === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Generate the Final before creating the Third Place match.',
+        });
+      }
+
+      const groups = await getGroupsFromMatches(pool, league);
+      const format = detectFormat(allMatches, groups);
+      const groupOrder = Object.keys(groups).sort();
+      const teamCount =
+        inferSingleGroupTeamCount(allMatches, format) ??
+        groupOrder.reduce((sum, id) => sum + (groups[id]?.length || 0), 0);
+      const fullStandings = getFullGroupStandings(groups, allMatches, groupOrder[0]);
+
+      try {
+        pairing = resolveThirdPlacePairing({ standings: fullStandings });
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+        });
+      }
     }
     const team1Id = pairing.team1.id < pairing.team2.id ? pairing.team1.id : pairing.team2.id;
     const team2Id = pairing.team1.id < pairing.team2.id ? pairing.team2.id : pairing.team1.id;
-    const scheduled = formatDateForMySQL(getNextTimeSlot(new Date(startDate || new Date())));
+    const thirdPlaceSlot = createMatchSlotCursor(startDate || new Date(), timeSlotConfig, courtConfig).getNext();
+    const scheduled = thirdPlaceSlot.scheduled_date;
+    const matchVenue = thirdPlaceSlot.venue;
 
     const [result] = await pool.execute(
       'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [team1Id, team2Id, scheduled, venue || 'Main Court', 'Third Place', null, league]
+      [team1Id, team2Id, scheduled, matchVenue, 'Third Place', null, league]
     );
 
     res.json({
@@ -1039,6 +1246,7 @@ export const generateThirdPlace = async (req, res, next) => {
           team1_id: team1Id,
           team2_id: team2Id,
           scheduled_date: scheduled,
+          venue: matchVenue,
           round_type: 'Third Place',
           league,
         },

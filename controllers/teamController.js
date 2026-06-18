@@ -1,34 +1,103 @@
 import pool from '../utils/database.js';
-import { buildDefaultTeamName, normalizeTeamName } from '../../shared/teamNaming.js';
-import { resetTournamentData } from '../utils/tournamentDataReset.js';
+import { buildDefaultTeamName, normalizeTeamName } from '@shared/tournament/teamNaming.js';
+import {
+  canFormTeams,
+  isSinglesFormat,
+  VALID_LEAGUES,
+} from '@shared/tournament/competitionFormat.js';
+import {
+  getCompetitionFormat,
+  TEAM_SELECT,
+} from '../services/leagueSettingsService.js';
+import { getMergedPairingRules } from '../services/pairingRuleService.js';
+import { buildDoublesTeamsWithPairingRules } from '@shared/tournament/teamPairing.js';
+
+const shufflePlayers = (players) => {
+  const shuffled = [...players];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+const getPlayersForLeague = async (league) => {
+  if (league === 'Expert') {
+    const [rows] = await pool.execute(
+      'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL)'
+    );
+    return rows;
+  }
+  if (league === 'Intermediate') {
+    const [rows] = await pool.execute(
+      'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL)'
+    );
+    return rows;
+  }
+  if (league === 'Women') {
+    const [rows] = await pool.execute(
+      'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND category = "Women"'
+    );
+    return rows;
+  }
+  return [];
+};
+
+const resolveLeagueFromPlayer = (player) => {
+  const category = player.category || 'Men';
+  if (category === 'Women') return 'Women';
+  if (player.expertise_level === 'Expert') return 'Expert';
+  if (player.expertise_level === 'Intermediate') return 'Intermediate';
+  return null;
+};
+
+const validatePlayersForLeague = (player1, player2, league, competitionFormat) => {
+  const player1League = resolveLeagueFromPlayer(player1);
+  if (player1League !== league) {
+    return `Player ${player1.name} does not belong to ${league} league.`;
+  }
+
+  if (isSinglesFormat(competitionFormat)) {
+    return null;
+  }
+
+  if (!player2) {
+    return 'Doubles teams require two players.';
+  }
+
+  const player2League = resolveLeagueFromPlayer(player2);
+  if (player2League !== league) {
+    return `Player ${player2.name} does not belong to ${league} league.`;
+  }
+
+  if (player1.id === player2.id) {
+    return 'A doubles team must have two different players.';
+  }
+
+  return null;
+};
 
 // Get all teams with player information
 export const getAllTeams = async (req, res, next) => {
   try {
-    // Query to get all teams with player names and expertise levels
-    const [rows] = await pool.execute(`
-      SELECT 
-        t.id,
-        t.team_name,
-        t.league,
-        t.player1_id,
-        t.player2_id,
-        p1.name as player1_name,
-        p1.expertise_level as player1_expertise,
-        p1.category as player1_category,
-        p2.name as player2_name,
-        p2.expertise_level as player2_expertise,
-        p2.category as player2_category,
-        t.created_at,
-        t.updated_at
-      FROM teams t
-      INNER JOIN players p1 ON t.player1_id = p1.id
-      INNER JOIN players p2 ON t.player2_id = p2.id
-      ORDER BY t.created_at DESC
-    `);
+    const { league } = req.query;
+    const params = [];
+    let leagueFilter = '';
+
+    if (league) {
+      if (!VALID_LEAGUES.includes(league)) {
+        return res.status(400).json({ success: false, message: 'Invalid league' });
+      }
+      leagueFilter = 'WHERE t.league = ?';
+      params.push(league);
+    }
+
+    const [rows] = await pool.execute(
+      `${TEAM_SELECT} ${leagueFilter} ORDER BY t.created_at DESC`,
+      params
+    );
     res.json({ success: true, data: rows });
   } catch (error) {
-    // Handle table not found errors gracefully
     if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
       return res.json({ success: true, data: [] });
     }
@@ -40,31 +109,12 @@ export const getAllTeams = async (req, res, next) => {
 export const getTeamById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const [rows] = await pool.execute(`
-      SELECT 
-        t.id,
-        t.team_name,
-        t.league,
-        t.player1_id,
-        t.player2_id,
-        p1.name as player1_name,
-        p1.expertise_level as player1_expertise,
-        p1.category as player1_category,
-        p2.name as player2_name,
-        p2.expertise_level as player2_expertise,
-        p2.category as player2_category,
-        t.created_at,
-        t.updated_at
-      FROM teams t
-      INNER JOIN players p1 ON t.player1_id = p1.id
-      INNER JOIN players p2 ON t.player2_id = p2.id
-      WHERE t.id = ?
-    `, [id]);
-    
+    const [rows] = await pool.execute(`${TEAM_SELECT} WHERE t.id = ?`, [id]);
+
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Team not found' });
     }
-    
+
     res.json({ success: true, data: rows[0] });
   } catch (error) {
     next(error);
@@ -74,98 +124,103 @@ export const getTeamById = async (req, res, next) => {
 // Create a new team (manual creation)
 export const createTeam = async (req, res, next) => {
   try {
-    const { team_name, player1_id, player2_id } = req.body;
-    
-    // Check if players are different
-    if (player1_id === player2_id) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'A team must have two different players' 
-      });
-    }
-    
-    // Get player information to validate expertise levels and category
-    const [player1] = await pool.execute(
+    const { team_name, player1_id, player2_id, league: requestedLeague } = req.body;
+
+    const [player1Rows] = await pool.execute(
       'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
       [player1_id]
     );
-    const [player2] = await pool.execute(
-      'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
-      [player2_id]
-    );
-    
-    // Check if both players exist
-    if (player1.length === 0 || player2.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'One or both players not found or inactive' 
+
+    if (player1Rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Player not found or inactive',
       });
     }
-    
-    // Get player categories
-    const player1Level = player1[0].expertise_level;
-    const player2Level = player2[0].expertise_level;
-    const player1Category = player1[0].category || 'Men';
-    const player2Category = player2[0].category || 'Men';
-    
-    // Determine league based on players
-    let league = null;
-    if (player1Category === 'Women' || player2Category === 'Women') {
-      // Women league: both players must be Women
-      if (player1Category !== 'Women' || player2Category !== 'Women') {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Women League teams must have two Women players.' 
+
+    const player1 = player1Rows[0];
+    const league = requestedLeague || resolveLeagueFromPlayer(player1);
+
+    if (!league || !VALID_LEAGUES.includes(league)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Could not determine league for this player.',
+      });
+    }
+
+    const competitionFormat = await getCompetitionFormat(pool, league);
+    const singles = isSinglesFormat(competitionFormat);
+
+    let player2 = null;
+    if (!singles) {
+      if (player2_id == null) {
+        return res.status(400).json({
+          success: false,
+          message: 'Doubles teams require two players.',
         });
       }
-      league = 'Women';
-    } else if (player1Level === 'Expert' && player2Level === 'Expert') {
-      // Expert league: both players must be Expert
-      league = 'Expert';
-    } else if (player1Level === 'Intermediate' && player2Level === 'Intermediate') {
-      // Intermediate league: both players must be Intermediate
-      league = 'Intermediate';
-    } else {
-      // Mixed levels not allowed - teams must be in same league
-      return res.status(400).json({ 
-        success: false, 
-        message: `Teams must have players from the same league. Player 1 is ${player1Level}, Player 2 is ${player2Level}.` 
+
+      const [player2Rows] = await pool.execute(
+        'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
+        [player2_id]
+      );
+
+      if (player2Rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Second player not found or inactive',
+        });
+      }
+
+      player2 = player2Rows[0];
+    } else if (player2_id != null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Singles leagues use one player per team.',
       });
     }
-    
-    const normalizedName = normalizeTeamName(String(team_name || '').trim(), league);
+
+    const validationError = validatePlayersForLeague(player1, player2, league, competitionFormat);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
+    const normalizedName = normalizeTeamName(
+      String(team_name || '').trim() || (singles ? player1.name : ''),
+      league
+    );
     if (!normalizedName) {
       return res.status(400).json({ success: false, message: 'Team name is required' });
     }
 
-    // Create the team
     const [result] = await pool.execute(
       'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, ?, ?)',
-      [normalizedName, player1_id, player2_id, league]
+      [normalizedName, player1_id, singles ? null : player2_id, league]
     );
-    
+
     res.status(201).json({
       success: true,
-      message: 'Team created successfully',
-      data: { 
-        id: result.insertId, 
-        team_name: normalizedName, 
-        player1_id, 
-        player2_id,
-        player1_name: player1[0].name,
-        player1_expertise: player1Level,
-        player1_category: player1Category,
-        player2_name: player2[0].name,
-        player2_expertise: player2Level,
-        player2_category: player2Category,
-        league: league
-      }
+      message: singles ? 'Entrant created successfully' : 'Team created successfully',
+      data: {
+        id: result.insertId,
+        team_name: normalizedName,
+        player1_id,
+        player2_id: singles ? null : player2_id,
+        player1_name: player1.name,
+        player1_expertise: player1.expertise_level,
+        player1_category: player1.category || 'Men',
+        player2_name: player2?.name ?? null,
+        player2_expertise: player2?.expertise_level ?? null,
+        player2_category: player2?.category ?? null,
+        league,
+        competition_format: competitionFormat,
+      },
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This team combination already exists' 
+      return res.status(400).json({
+        success: false,
+        message: 'This player or team combination already exists in this league',
       });
     }
     next(error);
@@ -177,131 +232,129 @@ export const updateTeam = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { team_name, player1_id, player2_id } = req.body;
-    
-    // Check if team exists
+
     const [existingTeam] = await pool.execute(
-      'SELECT id FROM teams WHERE id = ?',
+      'SELECT id, league, player1_id, player2_id FROM teams WHERE id = ?',
       [id]
     );
-    
+
     if (existingTeam.length === 0) {
       return res.status(404).json({ success: false, message: 'Team not found' });
     }
-    
-    // Build update query dynamically
+
+    const league = existingTeam[0].league;
+    const competitionFormat = await getCompetitionFormat(pool, league);
+    const singles = isSinglesFormat(competitionFormat);
+
     const updateFields = [];
     const values = [];
-    
-    // If players are being updated, validate them
+
     if (player1_id !== undefined || player2_id !== undefined) {
-      // Get current team players if not provided
-      const [currentTeam] = await pool.execute(
-        'SELECT player1_id, player2_id FROM teams WHERE id = ?',
-        [id]
-      );
-      
-      const finalPlayer1Id = player1_id !== undefined ? player1_id : currentTeam[0].player1_id;
-      const finalPlayer2Id = player2_id !== undefined ? player2_id : currentTeam[0].player2_id;
-      
-      // Check if players are different
-      if (finalPlayer1Id === finalPlayer2Id) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'A team must have two different players' 
-        });
-      }
-      
-      // Validate expertise levels and category
-      const [player1] = await pool.execute(
-        'SELECT expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
+      const finalPlayer1Id = player1_id !== undefined ? player1_id : existingTeam[0].player1_id;
+      const finalPlayer2Id = singles
+        ? null
+        : player2_id !== undefined
+          ? player2_id
+          : existingTeam[0].player2_id;
+
+      const [player1Rows] = await pool.execute(
+        'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
         [finalPlayer1Id]
       );
-      const [player2] = await pool.execute(
-        'SELECT expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
-        [finalPlayer2Id]
-      );
-      
-      if (player1.length === 0 || player2.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'One or both players not found or inactive' 
+
+      if (player1Rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Player not found or inactive',
         });
       }
-      
-      // Determine league based on players
-      const player1Level = player1[0].expertise_level;
-      const player2Level = player2[0].expertise_level;
-      const player1Category = player1[0].category || 'Men';
-      const player2Category = player2[0].category || 'Men';
-      
-      let league = null;
-      if (player1Category === 'Women' || player2Category === 'Women') {
-        if (player1Category !== 'Women' || player2Category !== 'Women') {
-          return res.status(400).json({ 
-            success: false, 
-            message: 'Women League teams must have two Women players.' 
+
+      let player2 = null;
+      if (!singles) {
+        const [player2Rows] = await pool.execute(
+          'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
+          [finalPlayer2Id]
+        );
+
+        if (player2Rows.length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Second player not found or inactive',
           });
         }
-        league = 'Women';
-      } else if (player1Level === 'Expert' && player2Level === 'Expert') {
-        league = 'Expert';
-      } else if (player1Level === 'Intermediate' && player2Level === 'Intermediate') {
-        league = 'Intermediate';
-      } else {
-        return res.status(400).json({ 
-          success: false, 
-          message: `Teams must have players from the same league. Player 1 is ${player1Level}, Player 2 is ${player2Level}.` 
-        });
+
+        player2 = player2Rows[0];
       }
-      
-      // Update league field when players change
-      updateFields.push('league = ?');
-      values.push(league);
-    }
-    
-    if (team_name !== undefined) {
-      const [currentLeagueRow] = await pool.execute('SELECT league FROM teams WHERE id = ?', [id]);
-      const trimmedName = normalizeTeamName(
-        String(team_name).trim(),
-        currentLeagueRow[0]?.league
+
+      const validationError = validatePlayersForLeague(
+        player1Rows[0],
+        player2,
+        league,
+        competitionFormat
       );
+      if (validationError) {
+        return res.status(400).json({ success: false, message: validationError });
+      }
+
+      if (player1_id !== undefined) {
+        updateFields.push('player1_id = ?');
+        values.push(finalPlayer1Id);
+      }
+      if (!singles && player2_id !== undefined) {
+        updateFields.push('player2_id = ?');
+        values.push(finalPlayer2Id);
+      }
+    }
+
+    if (team_name !== undefined) {
+      const trimmedName = normalizeTeamName(String(team_name).trim(), league);
       if (!trimmedName) {
         return res.status(400).json({ success: false, message: 'Team name is required' });
       }
       updateFields.push('team_name = ?');
       values.push(trimmedName);
     }
-    if (player1_id !== undefined) {
-      updateFields.push('player1_id = ?');
-      values.push(player1_id);
-    }
-    if (player2_id !== undefined) {
-      updateFields.push('player2_id = ?');
-      values.push(player2_id);
-    }
-    
+
     if (updateFields.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No fields to update' 
+      return res.status(400).json({
+        success: false,
+        message: 'No fields to update',
       });
     }
-    
+
     values.push(id);
-    
-    await pool.execute(
-      `UPDATE teams SET ${updateFields.join(', ')} WHERE id = ?`,
-      values
-    );
-    
+
+    await pool.execute(`UPDATE teams SET ${updateFields.join(', ')} WHERE id = ?`, values);
+
     res.json({ success: true, message: 'Team updated successfully' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'This team combination already exists' 
+      return res.status(400).json({
+        success: false,
+        message: 'This player or team combination already exists in this league',
       });
     }
+    next(error);
+  }
+};
+
+// Delete all teams for a league (cascades to that league's matches via FK)
+export const deleteTeamsByLeague = async (req, res, next) => {
+  try {
+    const { league } = req.params;
+
+    if (!VALID_LEAGUES.includes(league)) {
+      return res.status(400).json({ success: false, message: 'Invalid league' });
+    }
+
+    const [result] = await pool.execute('DELETE FROM teams WHERE league = ?', [league]);
+
+    res.json({
+      success: true,
+      message: `Deleted ${result.affectedRows} team(s) from ${league} league`,
+      data: { league, deleted: result.affectedRows },
+    });
+  } catch (error) {
     next(error);
   }
 };
@@ -310,127 +363,115 @@ export const updateTeam = async (req, res, next) => {
 export const deleteTeam = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
-    const [result] = await pool.execute(
-      'DELETE FROM teams WHERE id = ?',
-      [id]
-    );
-    
+
+    const [result] = await pool.execute('DELETE FROM teams WHERE id = ?', [id]);
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Team not found' });
     }
-    
+
     res.json({ success: true, message: 'Team deleted successfully' });
   } catch (error) {
     next(error);
   }
 };
 
-// Generate random teams automatically
-// Each team will have one Intermediate and one Expert player
+// Generate random teams for one league (or all eligible leagues if league omitted)
 export const generateRandomTeams = async (req, res, next) => {
   try {
-    // Step 1: Get all active players
-    const [players] = await pool.execute(
-      'SELECT id, name, expertise_level, category FROM players WHERE is_active = TRUE'
-    );
-    
-    // Step 2: Check if we have even number of players (for pairing)
-    if (players.length % 2 !== 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot create teams. You have ${players.length} players. Need an even number of players.`
-      });
+    const { league: requestedLeague } = req.body;
+
+    if (requestedLeague && !VALID_LEAGUES.includes(requestedLeague)) {
+      return res.status(400).json({ success: false, message: 'Invalid league' });
     }
-    
-    // Step 3: Split players by league
-    const expertPlayers = players.filter(p => p.expertise_level === 'Expert' && (p.category === 'Men' || !p.category));
-    const intermediatePlayers = players.filter(p => p.expertise_level === 'Intermediate' && (p.category === 'Men' || !p.category));
-    const womenPlayers = players.filter(p => p.category === 'Women');
-    
-    // Step 4: Check if we have enough players for at least one league
-    const leaguesToCreate = [];
-    if (expertPlayers.length >= 2 && expertPlayers.length % 2 === 0) {
-      leaguesToCreate.push({ name: 'Expert', players: expertPlayers });
-    }
-    if (intermediatePlayers.length >= 2 && intermediatePlayers.length % 2 === 0) {
-      leaguesToCreate.push({ name: 'Intermediate', players: intermediatePlayers });
-    }
-    if (womenPlayers.length >= 2 && womenPlayers.length % 2 === 0) {
-      leaguesToCreate.push({ name: 'Women', players: womenPlayers });
-    }
-    
-    if (leaguesToCreate.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot create teams. Need at least 2 players per league with even numbers. Expert: ${expertPlayers.length}, Intermediate: ${intermediatePlayers.length}, Women: ${womenPlayers.length}`
-      });
-    }
-    
-    // Step 5: Clear teams, matches, and statistics (IDs restart from 1)
-    const connection = await pool.getConnection();
-    try {
-      await resetTournamentData(connection, { includePlayers: false });
-    } finally {
-      connection.release();
-    }
-    
-    // Step 6: Create teams for each league
+
+    const leaguesToCreate = requestedLeague ? [requestedLeague] : VALID_LEAGUES;
+
     const allTeams = [];
-    
-    for (const league of leaguesToCreate) {
-      // Shuffle players randomly for this league
-      let shuffledPlayers = [];
-      if (league.name === 'Expert') {
-        [shuffledPlayers] = await pool.execute(
-          'SELECT id, name, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL) ORDER BY RAND()'
-        );
-      } else if (league.name === 'Intermediate') {
-        [shuffledPlayers] = await pool.execute(
-          'SELECT id, name, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL) ORDER BY RAND()'
-        );
-      } else if (league.name === 'Women') {
-        [shuffledPlayers] = await pool.execute(
-          'SELECT id, name, expertise_level, category FROM players WHERE is_active = TRUE AND category = "Women" ORDER BY RAND()'
-        );
+    const skippedLeagues = [];
+    const pairingRules = await getMergedPairingRules();
+
+    for (const leagueName of leaguesToCreate) {
+      const competitionFormat = await getCompetitionFormat(pool, leagueName);
+      const singles = isSinglesFormat(competitionFormat);
+      const leaguePlayers = await getPlayersForLeague(leagueName);
+
+      if (!canFormTeams(leaguePlayers.length, competitionFormat)) {
+        if (requestedLeague) {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot create ${leagueName} ${singles ? 'entrants' : 'teams'}. Need an even number of players (≥ 2). Found ${leaguePlayers.length}.`,
+          });
+        }
+        skippedLeagues.push({ league: leagueName, playerCount: leaguePlayers.length });
+        continue;
       }
-      
-      const teamCount = Math.floor(shuffledPlayers.length / 2);
-      
-      for (let i = 0; i < teamCount; i++) {
-        const teamName = buildDefaultTeamName(i + 1);
-        const player1 = shuffledPlayers[i * 2];
-        const player2 = shuffledPlayers[i * 2 + 1];
-        
-        // Insert team into database
-        await pool.execute(
-          'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, ?, ?)',
-          [teamName, player1.id, player2.id, league.name]
+
+      await pool.execute('DELETE FROM teams WHERE league = ?', [leagueName]);
+
+      const shuffledPlayers = shufflePlayers(leaguePlayers);
+
+      if (singles) {
+        for (let i = 0; i < shuffledPlayers.length; i += 1) {
+          const player = shuffledPlayers[i];
+          const teamName = buildDefaultTeamName(i + 1);
+
+          await pool.execute(
+            'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, NULL, ?)',
+            [teamName, player.id, leagueName]
+          );
+
+          allTeams.push({
+            teamName,
+            league: leagueName,
+            player1: player,
+            player2: null,
+          });
+        }
+      } else {
+        const teamPairs = buildDoublesTeamsWithPairingRules(
+          leaguePlayers,
+          pairingRules,
+          leagueName
         );
-        
-        allTeams.push({
-          teamName,
-          league: league.name,
-          player1: player1,
-          player2: player2
-        });
+
+        for (let i = 0; i < teamPairs.length; i += 1) {
+          const [player1, player2] = teamPairs[i];
+          const teamName = buildDefaultTeamName(i + 1);
+
+          await pool.execute(
+            'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, ?, ?)',
+            [teamName, player1.id, player2.id, leagueName]
+          );
+
+          allTeams.push({
+            teamName,
+            league: leagueName,
+            player1,
+            player2,
+          });
+        }
       }
     }
-    
-    const teams = allTeams;
-    const teamCount = teams.length;
-    
+
+    if (allTeams.length === 0) {
+      const detail = requestedLeague
+        ? `Need an even number of players for ${requestedLeague} league.`
+        : 'No league had enough players with an even count.';
+      return res.status(400).json({
+        success: false,
+        message: `Cannot create teams. ${detail}`,
+        data: { skippedLeagues },
+      });
+    }
+
+    const scope = requestedLeague ? `${requestedLeague} league` : 'eligible leagues';
     res.status(201).json({
       success: true,
-      message: `${teamCount} teams generated successfully`,
-      data: teams
+      message: `${allTeams.length} entrant(s) generated for ${scope}`,
+      data: { teams: allTeams, skippedLeagues },
     });
   } catch (error) {
     next(error);
   }
 };
-
-
-
-
-

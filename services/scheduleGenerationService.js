@@ -4,8 +4,8 @@ import {
   resolveTournamentConfig,
   buildConfigFromCounts,
   getTournamentSetupOptions,
-} from '../../shared/tournament/index.js';
-import { scheduleFixtures, validateDateRangeForMatches } from '../../shared/tournament/scheduling.js';
+} from '@shared/tournament/index.js';
+import { scheduleFixtures, validateDateRangeForMatches } from '@shared/tournament/scheduling.js';
 
 /**
  * Build a complete group-stage schedule for all teams in a league.

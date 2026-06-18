@@ -48,18 +48,19 @@ export const createPlayer = async (req, res, next) => {
   try {
     // Get player data from request body (sent from frontend)
     const { name, email, expertise_level, category } = req.body;
+    const normalizedEmail = email?.trim() || null;
     
     // Insert new player into database (category defaults to 'Men' if not provided)
     const [result] = await pool.execute(
       'INSERT INTO players (name, email, expertise_level, category) VALUES (?, ?, ?, ?)',
-      [name, email, expertise_level, category || 'Men']
+      [name, normalizedEmail, expertise_level, category || 'Men']
     );
     
     // Return success response with created player info
     res.status(201).json({
       success: true,
       message: 'Player created successfully',
-      data: { id: result.insertId, name, email, expertise_level, category: category || 'Men' }
+      data: { id: result.insertId, name, email: normalizedEmail, expertise_level, category: category || 'Men' }
     });
   } catch (error) {
     // If email already exists, return specific error message
@@ -90,7 +91,7 @@ export const updatePlayer = async (req, res, next) => {
     }
     if (email !== undefined) {
       updateFields.push('email = ?');
-      values.push(email);
+      values.push(email?.trim() || null);
     }
     if (expertise_level !== undefined) {
       updateFields.push('expertise_level = ?');

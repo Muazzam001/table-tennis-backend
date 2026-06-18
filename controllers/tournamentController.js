@@ -1,22 +1,29 @@
 import pool from '../utils/database.js';
-import {
-  getLeagueMatches,
-  getGroupsFromMatches,
-  detectFormat,
-  calculateGroupStandings,
-  deriveTournamentStatus,
-} from '../services/tournamentService.js';
-import { buildKnockoutBracket } from '../../shared/tournament/knockout.js';
-import { getTournamentSetupOptions, getPoolIds } from '../../shared/tournament/constants.js';
-import { countQualifyingMatches } from '../../shared/tournament/matchGeneration.js';
+import { countPlayersForLeague } from '../services/tournamentService.js';
+import { getCompetitionFormat } from '../services/leagueSettingsService.js';
+import { getTournamentSetupOptions } from '@shared/tournament/constants.js';
+import { countQualifyingMatches } from '@shared/tournament/matchGeneration.js';
 import {
   suggestMinimumEndDate,
-  SLOTS_PER_WEEKDAY,
-} from '../../shared/tournament/scheduling.js';
+  resolveTimeSlotConfig,
+  getSchedulingCapacity,
+  resolveCourtConfig,
+  formatTimeLabel,
+} from '@shared/tournament/scheduling.js';
+import { getGroupsFromMatches } from '../services/tournamentService.js';
+import { buildLeagueOverview } from '../services/tournamentOverviewService.js';
 
 export const getTournamentSetup = async (req, res, next) => {
   try {
-    const { league, startDate, groupCount: groupCountParam } = req.query;
+    const {
+      league,
+      startDate,
+      groupCount: groupCountParam,
+      startTime,
+      endTime,
+      intervalMinutes,
+      courtCount: courtCountParam,
+    } = req.query;
     if (!league) {
       return res.status(400).json({ success: false, message: 'League query parameter is required' });
     }
@@ -26,20 +33,41 @@ export const getTournamentSetup = async (req, res, next) => {
       [league]
     );
 
-    const options = getTournamentSetupOptions(teams.length);
+    const playerCount = await countPlayersForLeague(pool, league);
+    const competitionFormat = await getCompetitionFormat(pool, league);
+    const options = getTournamentSetupOptions(teams.length, playerCount);
     const resolvedGroupCount = groupCountParam
       ? Number(groupCountParam)
       : options.defaultGroupCount;
 
     let scheduling = null;
     if (options.isValid && resolvedGroupCount) {
+      const timeSlotConfig = resolveTimeSlotConfig({
+        startTime,
+        endTime,
+        intervalMinutes: intervalMinutes ? Number(intervalMinutes) : undefined,
+      });
+      const courtConfig = resolveCourtConfig({
+        courtCount: courtCountParam ? Number(courtCountParam) : undefined,
+      });
+      const capacity = getSchedulingCapacity(timeSlotConfig, courtConfig);
       const qualifyingMatchCount = countQualifyingMatches(teams.length, resolvedGroupCount);
       scheduling = {
-        slotsPerWeekday: SLOTS_PER_WEEKDAY,
+        timeSlotConfig: {
+          startTime: formatTimeLabel(timeSlotConfig.startHour, timeSlotConfig.startMinute),
+          endTime: formatTimeLabel(timeSlotConfig.endHour, timeSlotConfig.endMinute),
+          intervalMinutes: timeSlotConfig.intervalMinutes,
+        },
+        courtConfig: {
+          courtCount: capacity.courtCount,
+        },
+        slotsPerWeekday: capacity.slotsPerWeekday,
+        matchesPerWeekday: capacity.matchesPerWeekday,
+        timeRangeLabel: capacity.timeRangeLabel,
         qualifyingMatchCount,
-        minimumWeekdays: Math.ceil(qualifyingMatchCount / SLOTS_PER_WEEKDAY),
+        minimumWeekdays: Math.ceil(qualifyingMatchCount / capacity.matchesPerWeekday),
         suggestedEndDate: startDate
-          ? suggestMinimumEndDate(startDate, qualifyingMatchCount)
+          ? suggestMinimumEndDate(startDate, qualifyingMatchCount, timeSlotConfig, courtConfig)
           : null,
       };
     }
@@ -48,6 +76,7 @@ export const getTournamentSetup = async (req, res, next) => {
       success: true,
       data: {
         league,
+        competition_format: competitionFormat,
         ...options,
         scheduling,
       },
@@ -95,54 +124,11 @@ export const getTournamentOverview = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'League query parameter is required' });
     }
 
-    const matches = await getLeagueMatches(pool, league);
-    const groups = await getGroupsFromMatches(pool, league);
-    const groupOrder = Object.keys(groups).sort();
-    const format = detectFormat(matches, groups);
-
-    const config =
-      groupOrder.length > 0
-        ? {
-            format,
-            participantCount: Object.values(groups).reduce((sum, t) => sum + t.length, 0),
-            groupCount: groupOrder.length,
-            groupSize: groupOrder.length > 0
-              ? Object.values(groups)[0]?.length || 0
-              : 0,
-            qualifiersPerGroup: format === 'pools-2' ? 4 : 2,
-            poolIds: groupOrder.length > 0 ? groupOrder : getPoolIds(4),
-          }
-        : null;
-
-    /** @type {Record<string, object[]>} */
-    const standings = {};
-    for (const [poolId, teams] of Object.entries(groups)) {
-      const poolMatches = matches.filter((m) => m.pool === poolId);
-      standings[poolId] = calculateGroupStandings(teams, poolMatches);
-    }
-
-    const status = deriveTournamentStatus(matches);
-    const bracket = buildKnockoutBracket(matches, format);
-
-    const [teamRows] = await pool.execute(
-      'SELECT COUNT(*) as count FROM teams WHERE league = ?',
-      [league]
-    );
-    const setupOptions = getTournamentSetupOptions(teamRows[0].count);
+    const data = await buildLeagueOverview(pool, league);
 
     res.json({
       success: true,
-      data: {
-        league,
-        config,
-        format,
-        status,
-        groups: Object.entries(groups).map(([id, teams]) => ({ id, teams })),
-        standings,
-        bracket,
-        matches,
-        setupOptions,
-      },
+      data,
     });
   } catch (error) {
     next(error);

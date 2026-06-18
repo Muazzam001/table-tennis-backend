@@ -1,41 +1,56 @@
-import pool from '../utils/database.js';
-import mysql from 'mysql2/promise';
 import 'dotenv/config';
+import mysql from 'mysql2/promise';
+import pool from '../utils/database.js';
 import { truncateTournamentTablesWithPool } from '../utils/tournamentDataReset.js';
+
+// { name: 'Waheed A', email: 'waheed.a@ebitlogix.com' },
+// { name: 'Mahboob H', email: 'mahboob.h@ebitlogix.com' },
+
+// { name: 'Arshia T', email: 'arshia.t@ebitlogix.com' },
+// { name: 'Masooma Z', email: 'masooma.z@ebitlogix.com' },
+    // { name: 'Zainab K', email: 'zainab.k@ebitlogix.com' },
 
 // Sample player data for seeding (from seed.sql)
 const SAMPLE_PLAYERS = {
   expert: [
     { name: 'Zafar A', email: 'zafar.a@ebitlogix.com' },
     { name: 'Zaigham B', email: 'zaigham.b@ebitlogix.com' },
-    { name: 'Waheed A', email: 'waheed.a@ebitlogix.com' },
-    { name: 'Mahboob H', email: 'mahboob.h@ebitlogix.com' },
-    { name: 'Basalat A', email: 'basalat.a@ebitlogix.com' },
+    { name: 'Besalat A', email: 'besalat.a@ebitlogix.com' },
     { name: 'Ali R', email: 'ali.r@ebitlogix.com' },
     { name: 'Bilal S', email: 'bilal.s@ebitlogix.com' },
     { name: 'Shahrukh K', email: 'shahrukh.k@ebitlogix.com' },
     { name: 'Uzair A', email: 'uzair.a@ebitlogix.com' },
     { name: 'Mehroz K', email: 'mehroz.k@ebitlogix.com' },
     { name: 'Muazzam Y', email: 'muazzam.y@ebitlogix.com' },
-    { name: 'Ghulam D', email: 'ghulam.d@ebitlogix.com' },
+    { name: 'Ghulam D', email: 'ghulam.gd@ebitlogix.com' },
     { name: 'Ramzan K', email: 'ramzan.k@ebitlogix.com' },
     { name: 'M Arshad', email: 'm.arshad@ebitlogix.com' },
-    { name: 'Aqib M', email: 'aqib.m@ebitlogix.com' },
     { name: 'Salman M', email: 'salman.m@ebitlogix.com' },
     { name: 'Zeeshan F', email: 'zeeshan.f@ebitlogix.com' },
     { name: 'Haroon R', email: 'haroon.r@ebitlogix.com' },
-    { name: 'M Hamza QA', email: 'hamza.qa@ebitlogix.com' },
+    { name: 'Hamza QA', email: 'hamza.qa@ebitlogix.com' },
     { name: 'M Inamullah', email: 'm.inamullah@ebitlogix.com' },
     { name: 'Ahmad T', email: 'ahmad.t@ebitlogix.com' },
     { name: 'M Naseem', email: 'm.naseem@ebitlogix.com' },
-    { name: 'M Arslan QA', email: 'arslan.qa@ebitlogix.com' },
+    { name: 'Arslan QA', email: 'arslan.qa@ebitlogix.com' },
     { name: 'Usama S', email: 'usama.s@ebitlogix.com' },
     { name: 'Zaeem A', email: 'zaeem.a@ebitlogix.com' },
-    { name: 'M Arslan BD', email: 'arslan.bd@ebitlogix.com' },
     { name: 'M Waqas', email: 'm.waqas@ebitlogix.com' },
-    { name: 'Osaid M', email: 'osaid.m@ebitlogix.com' }
+    { name: 'Aizaz A', email: 'aizaz.a@ebitlogix.com' },
+    { name: 'Faizan R', email: 'faizan.r@ebitlogix.com' },
+    { name: 'Anees R', email: 'anees.r@ebitlogix.com' },
+    { name: 'M Usman', email: 'm.usman@ebitlogix.com' },
+    { name: 'Hamza I', email: 'hamza.i@ebitlogix.com' }
   ],
   intermediate: [
+  ],
+  women: [
+    { name: 'Ayesha A', email: 'ayesha.a@ebitlogix.com' },
+    { name: 'Benish A', email: 'benish.a@ebitlogix.com' },
+    { name: 'Urwah A', email: 'urwah.a@ebitlogix.com' },
+    { name: 'Hafsa S', email: 'hafsa.s@ebitlogix.com' },
+    { name: 'Mahnoor T', email: 'mahnoor.t@ebitlogix.com' },
+    { name: 'Malaika K', email: 'malaika.k@ebitlogix.com' },
   ]
 };
 
@@ -423,57 +438,76 @@ const safeExecute = async (query, params = []) => {
 };
 
 const sanitizeSeedError = (error) => {
-      if (!error) return 'An error occurred';
-      let message = typeof error === 'string' ? error : error.message || 'An error occurred';
+  if (!error) return 'An error occurred';
+  let message = typeof error === 'string' ? error : error.message || 'An error occurred';
 
-      message = message.replace(/table_tennis_tournament/gi, 'database');
-      message = message.replace(/\b(players|teams|matches|statistics|match_details)\b/gi, 'table');
-      message = message.replace(/Table\s+['"]?[\w_]+['"]?\s+doesn't exist/gi, 'Required table does not exist');
-      message = message.replace(/Unknown column\s+['"]?[\w_]+['"]?\s+in/gi, 'Unknown column in');
-      message = message.replace(/ER_\w+/g, '');
-      message = message.replace(/\s+/g, ' ').trim();
+  message = message.replace(/table_tennis_tournament/gi, 'database');
+  message = message.replace(/\b(players|teams|matches|statistics|match_details)\b/gi, 'table');
+  message = message.replace(/Table\s+['"]?[\w_]+['"]?\s+doesn't exist/gi, 'Required table does not exist');
+  message = message.replace(/Unknown column\s+['"]?[\w_]+['"]?\s+in/gi, 'Unknown column in');
+  message = message.replace(/ER_\w+/g, '');
+  message = message.replace(/\s+/g, ' ').trim();
 
-      return message;
-    };
+  return message;
+};
 
 const insertSamplePlayers = async (safeExecute) => {
-    let playersCreated = 0;
+  let playersCreated = 0;
 
-      for (const player of SAMPLE_PLAYERS.expert) {
-        try {
-          const [existing] = await safeExecute(
-            'SELECT id FROM players WHERE email = ?',
-            [player.email]
-          );
+  for (const player of SAMPLE_PLAYERS.expert) {
+    try {
+      const [existing] = await safeExecute(
+        'SELECT id FROM players WHERE email = ?',
+        [player.email]
+      );
 
-          if (existing.length === 0) {
-            await safeExecute(
-              'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
-              [player.name, player.email, 'Expert', 'Men', true]
-            );
-            playersCreated++;
-          }
-        } catch (error) {
-          console.error(`Error inserting player ${player.name}:`, error.message);
-        }
+      if (existing.length === 0) {
+        await safeExecute(
+          'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
+          [player.name, player.email, 'Expert', 'Men', true]
+        );
+        playersCreated++;
       }
+    } catch (error) {
+      console.error(`Error inserting player ${player.name}:`, error.message);
+    }
+  }
 
-      for (const player of SAMPLE_PLAYERS.intermediate) {
-        try {
-          const [existing] = await safeExecute(
-            'SELECT id FROM players WHERE email = ?',
-            [player.email]
-          );
+  for (const player of SAMPLE_PLAYERS.intermediate) {
+    try {
+      const [existing] = await safeExecute(
+        'SELECT id FROM players WHERE email = ?',
+        [player.email]
+      );
 
-          if (existing.length === 0) {
-            await safeExecute(
-              'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
-              [player.name, player.email, 'Intermediate', 'Men', true]
-            );
-            playersCreated++;
-          }
-        } catch (error) {
-          console.error(`Error inserting player ${player.name}:`, error.message);
+      if (existing.length === 0) {
+        await safeExecute(
+          'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
+          [player.name, player.email, 'Intermediate', 'Men', true]
+        );
+        playersCreated++;
+      }
+    } catch (error) {
+      console.error(`Error inserting player ${player.name}:`, error.message);
+    }
+  }
+
+  for (const player of SAMPLE_PLAYERS.women) {
+    try {
+      const [existing] = await safeExecute(
+        'SELECT id FROM players WHERE email = ?',
+        [player.email]
+      );
+
+      if (existing.length === 0) {
+        await safeExecute(
+          'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
+          [player.name, player.email, 'Expert', 'Women', true]
+        );
+        playersCreated++;
+      }
+    } catch (error) {
+      console.error(`Error inserting player ${player.name}:`, error.message);
     }
   }
 
@@ -526,7 +560,7 @@ export const seedPlayers = async (req, res, next) => {
       [players] = await safeExecute(
         'SELECT id, name, expertise_level, category FROM players WHERE is_active = TRUE'
       );
-      } catch (error) {
+    } catch (error) {
       console.error('Error fetching players:', error.message);
       return res.status(500).json({
         success: false,

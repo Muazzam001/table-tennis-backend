@@ -13,7 +13,7 @@ import {
   getTournamentConfig,
   buildConfigFromCounts,
   scheduleFixtures,
-} from '../../shared/tournament/index.js';
+} from '@shared/tournament/index.js';
 
 export {
   distributeIntoGroups,
@@ -62,6 +62,27 @@ export async function getGroupsFromMatches(db, league) {
  * @param {import('mysql2/promise').Pool} db
  * @param {string} league
  */
+export async function countPlayersForLeague(db, league) {
+  let query = '';
+  if (league === 'Expert') {
+    query =
+      'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL)';
+  } else if (league === 'Intermediate') {
+    query =
+      'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL)';
+  } else if (league === 'Women') {
+    query = 'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND category = "Women"';
+  } else {
+    return 0;
+  }
+  const [[{ count }]] = await db.query(query);
+  return Number(count);
+}
+
+/**
+ * @param {import('mysql2/promise').Pool} db
+ * @param {string} league
+ */
 export async function getLeagueMatches(db, league) {
   const [rows] = await db.execute(
     `SELECT m.*, t1.team_name AS team1_name, t2.team_name AS team2_name
@@ -81,6 +102,7 @@ export async function getLeagueMatches(db, league) {
  */
 export function detectFormat(matches, groups = null) {
   const pools = getGroupOrderFromMatches(matches);
+  if (pools.length === 1) return 'single-group';
   if (pools.length === 2) {
     if (groups) {
       const sizes = pools.map((p) => groups[p]?.length || 0);

@@ -5,11 +5,18 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "dev": "node --watch server.js",
-    "start": "node server.js",
-    "create-admin": "node scripts/createAdmin.js",
-    "seed": "node scripts/reseed.js",
-    "reseed": "node scripts/reseed.js"
+    "sync:shared": "node scripts/sync-shared.mjs",
+    "predev": "npm run sync:shared",
+    "dev": "node --import ./register-aliases.js --watch server.js",
+    "prebuild": "npm run sync:shared",
+    "build": "node --import ./register-aliases.js scripts/verify-build.mjs",
+    "prestart": "npm run sync:shared",
+    "start": "node --import ./register-aliases.js server.js",
+    "create-admin": "node --import ./register-aliases.js scripts/createAdmin.js",
+    "premigrate": "npm run sync:shared",
+    "migrate": "node --import ./register-aliases.js scripts/migrate.js",
+    "seed": "node --import ./register-aliases.js scripts/reseed.js",
+    "reseed": "node --import ./register-aliases.js scripts/reseed.js"
   },
   "dependencies": {
     "express": "^4.18.2",

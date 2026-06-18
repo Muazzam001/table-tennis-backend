@@ -26,7 +26,7 @@ This is the backend API for the Table Tennis Tournament Management System. It pr
 - **RESTful API** - Clean, consistent API design
 - **Player Management** - Full CRUD operations for players
 - **Team Management** - Create teams with validation (one Intermediate + one Expert)
-- **Tournament Engine** - Flexible group + knockout (`shared/tournament/`)
+- **Tournament Engine** - Flexible group + knockout (`shared/tournament/` — vendored in-repo; see `npm run sync:shared`)
 - **Match Management** - Schedule, results, auto knockout progression
 - **Statistics** - Dashboard and live group standings
 - **Authentication** - JWT-based authentication
@@ -108,10 +108,10 @@ backend/
 3. **Set up database:**
    ```bash
    # Run database schema
-   mysql -u root -p < ../database/schema.sql
+   mysql -u root -p < database/schema.sql
    
    # (Optional) Seed sample data
-   mysql -u root -p < ../database/seed.sql
+   mysql -u root -p < database/seed.sql
    ```
 
 4. **Create environment file:**
@@ -366,7 +366,7 @@ The API uses a connection pool for database operations (`utils/database.js`).
 
 ### Database Schema
 
-See [Database README](../database/README.md) for schema details.
+See [Database README](./database/README.md) for schema details.
 
 ### Tables
 
@@ -398,7 +398,7 @@ Features:
 
 The application follows **MVC pattern**:
 
-- **Models**: Database schema (in database/)
+- **Models**: Database schema (in `database/`)
 - **Views**: API responses (JSON)
 - **Controllers**: Business logic (`controllers/`)
 - **Routes**: Endpoint definitions (`routes/`)

@@ -15,7 +15,11 @@ const router = express.Router();
 // Validation rules
 const playerValidation = [
   body('name').trim().notEmpty().withMessage('Name is required'),
-  body('email').isEmail().withMessage('Valid email is required'),
+  body('email')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isEmail()
+    .withMessage('Please enter a valid email address'),
   body('expertise_level').isIn(['Intermediate', 'Expert']).withMessage('Expertise level must be Intermediate or Expert'),
   body('category').optional().isIn(['Men', 'Women']).withMessage('Category must be Men or Women'),
 ];
@@ -26,7 +30,7 @@ router.get('/:id', getPlayerById);
 
 // Admin-only routes (CRUD operations)
 router.post('/', authenticate, isAdmin, playerValidation, handleValidationErrors, createPlayer);
-router.put('/:id', authenticate, isAdmin, handleValidationErrors, updatePlayer);
+router.put('/:id', authenticate, isAdmin, playerValidation, handleValidationErrors, updatePlayer);
 router.delete('/:id', authenticate, isAdmin, deletePlayer);
 
 export default router;
