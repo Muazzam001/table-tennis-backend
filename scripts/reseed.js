@@ -55,11 +55,11 @@ const run = async () => {
       if (payload.success) {
         console.log(`\n✅ ${payload.message}`);
         if (payload.data) {
-          const { playersCreated, leagueCounts, possibleTeams } = payload.data;
+          const { playersCreated, divisionCounts, possibleTeams } = payload.data;
           if (playersCreated > 0) console.log(`   Players created: ${playersCreated}`);
-          if (leagueCounts) {
+          if (divisionCounts) {
             console.log(
-              `   Totals: ${leagueCounts.total} (Expert Men: ${leagueCounts.expertMen}, Intermediate: ${leagueCounts.intermediateMen}, Women: ${leagueCounts.women})`
+              `   Totals: ${divisionCounts.total} (Expert Men: ${divisionCounts.expertMen}, Intermediate: ${divisionCounts.intermediateMen}, Women: ${divisionCounts.women})`
             );
           }
           if (possibleTeams?.Expert) {

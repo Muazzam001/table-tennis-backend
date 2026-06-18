@@ -1,22 +1,22 @@
 import pool from '../utils/database.js';
 import {
-  archiveCompletedLeague,
+  archiveCompletedDivision,
   listTournamentArchives,
   getTournamentArchiveById,
 } from '../services/tournamentArchiveService.js';
 
 export const archiveTournament = async (req, res, next) => {
   try {
-    const { league } = req.query;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League query parameter is required' });
+    const { division } = req.query;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
 
-    const result = await archiveCompletedLeague(pool, league);
+    const result = await archiveCompletedDivision(pool, division);
 
     res.json({
       success: true,
-      message: `${league} tournament archived successfully. You can now start a new season for this league.`,
+      message: `${division} tournament archived successfully. You can now start a new season for this division.`,
       data: result,
     });
   } catch (error) {
@@ -29,14 +29,14 @@ export const archiveTournament = async (req, res, next) => {
 
 export const getTournamentHistory = async (req, res, next) => {
   try {
-    const { league } = req.query;
-    const archives = await listTournamentArchives(pool, { league });
+    const { division } = req.query;
+    const archives = await listTournamentArchives(pool, { division });
 
     res.json({
       success: true,
       data: archives.map((row) => ({
         id: row.id,
-        league: row.league,
+        division: row.division,
         name: row.name,
         completedAt: row.completed_at,
         archivedAt: row.archived_at,

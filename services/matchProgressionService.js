@@ -14,7 +14,7 @@ import {
   inferSingleGroupTeamCount,
 } from '@shared/tournament/index.js';
 import {
-  getLeagueMatches,
+  getDivisionMatches,
   getGroupsFromMatches,
   detectFormat,
   normalizePairing,
@@ -24,11 +24,11 @@ import { createMatchSlotCursor, resolveCourtConfig } from '@shared/tournament/sc
 /**
  * @param {import('mysql2/promise').Pool} db
  * @param {object[]} matchDefs
- * @param {string} league
+ * @param {string} division
  * @param {string} [startDate]
  * @param {Partial<import('@shared/tournament/scheduling.js').CourtConfig>} [courtConfigInput]
  */
-async function insertKnockoutMatches(db, matchDefs, league, startDate, courtConfigInput = null) {
+async function insertKnockoutMatches(db, matchDefs, division, startDate, courtConfigInput = null) {
   const courtConfig = resolveCourtConfig(courtConfigInput);
   const slotCursor = createMatchSlotCursor(startDate || new Date(), undefined, courtConfig);
   const created = [];
@@ -43,8 +43,8 @@ async function insertKnockoutMatches(db, matchDefs, league, startDate, courtConf
 
     const slot = slotCursor.getNext();
     const [result] = await db.execute(
-      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [normalized.team1_id, normalized.team2_id, slot.scheduled_date, slot.venue, def.round_type, null, league]
+      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [normalized.team1_id, normalized.team2_id, slot.scheduled_date, slot.venue, def.round_type, null, division]
     );
 
     created.push({
@@ -52,7 +52,7 @@ async function insertKnockoutMatches(db, matchDefs, league, startDate, courtConf
       ...normalized,
       scheduled_date: slot.scheduled_date,
       venue: slot.venue,
-      league,
+      division,
     });
   }
 
@@ -62,15 +62,15 @@ async function insertKnockoutMatches(db, matchDefs, league, startDate, courtConf
 /**
  * Create Third Place when Final exists but Third Place is missing.
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function ensureThirdPlaceMatch(db, league) {
-  const matches = await getLeagueMatches(db, league);
+export async function ensureThirdPlaceMatch(db, division) {
+  const matches = await getDivisionMatches(db, division);
   const hasFinal = matches.some((m) => m.round_type === 'Final');
   const hasThird = matches.some((m) => m.round_type === 'Third Place');
   if (!hasFinal || hasThird) return { created: false };
 
-  const groups = await getGroupsFromMatches(db, league);
+  const groups = await getGroupsFromMatches(db, division);
   const format = detectFormat(matches, groups);
   const teamCount =
     inferSingleGroupTeamCount(matches, format) ??
@@ -95,7 +95,7 @@ export async function ensureThirdPlaceMatch(db, league) {
   const created = await insertKnockoutMatches(
     db,
     [{ ...thirdPairing, round_type: 'Third Place' }],
-    league,
+    division,
     startDate,
     courtConfig
   );
@@ -106,11 +106,11 @@ export async function ensureThirdPlaceMatch(db, league) {
 /**
  * Auto-generate next knockout round when prior round is complete.
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function tryAutoProgressKnockout(db, league) {
-  const matches = await getLeagueMatches(db, league);
-  const groups = await getGroupsFromMatches(db, league);
+export async function tryAutoProgressKnockout(db, division) {
+  const matches = await getDivisionMatches(db, division);
+  const groups = await getGroupsFromMatches(db, division);
   const format = detectFormat(matches, groups);
   const teamCount =
     inferSingleGroupTeamCount(matches, format) ??
@@ -151,7 +151,7 @@ export async function tryAutoProgressKnockout(db, league) {
         round_type: roundType,
       }));
 
-      const created = await insertKnockoutMatches(db, defs, league, startDate, courtConfig);
+      const created = await insertKnockoutMatches(db, defs, division, startDate, courtConfig);
       return { progressed: true, round: roundType, matches: created };
     }
   }
@@ -173,7 +173,7 @@ export async function tryAutoProgressKnockout(db, league) {
       round_type: 'Semi Final',
     }));
 
-    const created = await insertKnockoutMatches(db, defs, league, startDate, courtConfig);
+    const created = await insertKnockoutMatches(db, defs, division, startDate, courtConfig);
     return { progressed: true, round: 'Semi Final', matches: created };
   }
 
@@ -206,14 +206,14 @@ export async function tryAutoProgressKnockout(db, league) {
       const finalMatches = await insertKnockoutMatches(
         db,
         [{ ...finalPairing, round_type: 'Final' }],
-        league,
+        division,
         startDate,
         courtConfig
       );
       created.push(...finalMatches);
     }
 
-    const refreshed = await getLeagueMatches(db, league);
+    const refreshed = await getDivisionMatches(db, division);
     const existingThird = refreshed.filter((m) => m.round_type === 'Third Place');
     if (existingThird.length === 0) {
       let standings = [];
@@ -230,7 +230,7 @@ export async function tryAutoProgressKnockout(db, league) {
       const thirdMatches = await insertKnockoutMatches(
         db,
         [{ ...thirdPairing, round_type: 'Third Place' }],
-        league,
+        division,
         startDate,
         courtConfig
       );

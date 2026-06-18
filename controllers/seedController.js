@@ -94,14 +94,14 @@ const migrateExistingTables = async (connection, dbName) => {
         sql: `ALTER TABLE players ADD COLUMN category ENUM('Men', 'Women') DEFAULT 'Men' AFTER expertise_level`
       },
       {
-        column: 'league',
+        column: 'division',
         table: 'teams',
-        sql: `ALTER TABLE teams ADD COLUMN league ENUM('Expert', 'Intermediate', 'Women') NOT NULL DEFAULT 'Expert' AFTER player2_id`
+        sql: `ALTER TABLE teams ADD COLUMN division ENUM('Expert', 'Intermediate', 'Women') NOT NULL DEFAULT 'Expert' AFTER player2_id`
       },
       {
-        column: 'league',
+        column: 'division',
         table: 'matches',
-        sql: `ALTER TABLE matches ADD COLUMN league ENUM('Expert', 'Intermediate', 'Women') NOT NULL DEFAULT 'Expert' AFTER pool`
+        sql: `ALTER TABLE matches ADD COLUMN division ENUM('Expert', 'Intermediate', 'Women') NOT NULL DEFAULT 'Expert' AFTER pool`
       }
     ];
 
@@ -156,16 +156,16 @@ const migrateExistingTables = async (connection, dbName) => {
               // Index might already exist
             }
           }
-          if (migration.column === 'league' && tableName === 'teams') {
+          if (migration.column === 'division' && tableName === 'teams') {
             try {
-              await connection.query(`ALTER TABLE teams ADD INDEX idx_league (league)`);
+              await connection.query(`ALTER TABLE teams ADD INDEX idx_division (division)`);
             } catch (e) {
               // Index might already exist
             }
           }
-          if (migration.column === 'league' && tableName === 'matches') {
+          if (migration.column === 'division' && tableName === 'matches') {
             try {
-              await connection.query(`ALTER TABLE matches ADD INDEX idx_league (league)`);
+              await connection.query(`ALTER TABLE matches ADD INDEX idx_division (division)`);
             } catch (e) {
               // Index might already exist
             }
@@ -317,13 +317,13 @@ const ensureDatabaseAndTables = async () => {
         team_name VARCHAR(100) NOT NULL,
         player1_id INT NOT NULL,
         player2_id INT NOT NULL,
-        league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+        division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY unique_team (player1_id, player2_id),
         INDEX idx_player1 (player1_id),
         INDEX idx_player2 (player2_id),
-        INDEX idx_league (league),
+        INDEX idx_division (division),
         FOREIGN KEY (player1_id) REFERENCES players(id) ON DELETE CASCADE,
         FOREIGN KEY (player2_id) REFERENCES players(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -337,7 +337,7 @@ const ensureDatabaseAndTables = async () => {
         status ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled') DEFAULT 'Scheduled',
         round_type ENUM('Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place') DEFAULT 'Qualifying',
         pool VARCHAR(5) NULL,
-        league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+        division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
         winner_team_id INT NULL,
         score_team1 INT DEFAULT 0,
         score_team2 INT DEFAULT 0,
@@ -352,7 +352,7 @@ const ensureDatabaseAndTables = async () => {
         INDEX idx_status (status),
         INDEX idx_round_type (round_type),
         INDEX idx_pool (pool),
-        INDEX idx_league (league),
+        INDEX idx_division (division),
         UNIQUE KEY unique_match_teams_round_pool (team1_id, team2_id, round_type, pool),
         FOREIGN KEY (team1_id) REFERENCES teams(id) ON DELETE CASCADE,
         FOREIGN KEY (team2_id) REFERENCES teams(id) ON DELETE CASCADE,
@@ -514,7 +514,7 @@ const insertSamplePlayers = async (safeExecute) => {
   return playersCreated;
 };
 
-const summarizePlayersByLeague = (players) => {
+const summarizePlayersByDivision = (players) => {
   const expertMen = players.filter(
     (p) => p.expertise_level === 'Expert' && (p.category === 'Men' || !p.category)
   ).length;
@@ -576,10 +576,10 @@ export const seedPlayers = async (req, res, next) => {
       });
     }
 
-    const leagueCounts = summarizePlayersByLeague(players);
-    const expertTeamsPossible = Math.floor(leagueCounts.expertMen / 2);
-    const intermediateTeamsPossible = Math.floor(leagueCounts.intermediateMen / 2);
-    const womenTeamsPossible = Math.floor(leagueCounts.women / 2);
+    const divisionCounts = summarizePlayersByDivision(players);
+    const expertTeamsPossible = Math.floor(divisionCounts.expertMen / 2);
+    const intermediateTeamsPossible = Math.floor(divisionCounts.intermediateMen / 2);
+    const womenTeamsPossible = Math.floor(divisionCounts.women / 2);
 
     res.status(201).json({
       success: true,
@@ -588,7 +588,7 @@ export const seedPlayers = async (req, res, next) => {
         'Edit players on the Players page, generate teams on the Teams page, then create schedules on the Matches page.',
       data: {
         playersCreated,
-        leagueCounts,
+        divisionCounts,
         possibleTeams: {
           Expert: expertTeamsPossible,
           Intermediate: intermediateTeamsPossible,
@@ -596,7 +596,7 @@ export const seedPlayers = async (req, res, next) => {
         },
         workflow: [
           'Review and edit player details on the Players page',
-          'Generate teams per league on the Teams page (even player counts required)',
+          'Generate teams per division on the Teams page (even player counts required)',
           'Generate group-stage schedules on the Matches page after teams are saved',
           'Progress through Quarter Finals, Semi Finals, Final, and Third Place from Matches',
         ],

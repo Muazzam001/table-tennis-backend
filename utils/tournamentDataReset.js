@@ -53,7 +53,7 @@ async function reanchorAutoIncrement(connection, tableName) {
         break;
       }
       await connection.query(
-        `INSERT INTO teams (id, team_name, player1_id, player2_id, league)
+        `INSERT INTO teams (id, team_name, player1_id, player2_id, division)
          VALUES (1, '__reset__', ?, ?, 'Expert')`,
         [playerRows[0].id, playerRows[1].id]
       );
@@ -68,7 +68,7 @@ async function reanchorAutoIncrement(connection, tableName) {
         break;
       }
       await connection.query(
-        `INSERT INTO matches (id, team1_id, team2_id, scheduled_date, venue, league)
+        `INSERT INTO matches (id, team1_id, team2_id, scheduled_date, venue, division)
          VALUES (1, ?, ?, NOW(), 'Reset', 'Expert')`,
         [teamRows[0].id, teamRows[1].id]
       );

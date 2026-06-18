@@ -3,7 +3,7 @@
 -- Run each migration in order from the project root:
 --
 --   mysql -u root -p table_tennis_tournament < database/migrations/001_add_round_type_and_pool.sql
---   mysql -u root -p table_tennis_tournament < database/migrations/002_add_category_and_league.sql
+--   mysql -u root -p table_tennis_tournament < database/migrations/002_add_category_and_division.sql
 --   mysql -u root -p table_tennis_tournament < database/migrations/003_add_third_place_and_extend_round_type.sql
 --   mysql -u root -p table_tennis_tournament < database/migrations/004_pool_varchar.sql
 --   mysql -u root -p table_tennis_tournament < database/migrations/005_unique_match_constraint.sql

@@ -2,19 +2,19 @@ import pool from '../utils/database.js';
 import { DEFAULT_TEAM_PAIRING_RULES } from '@shared/tournament/defaultTeamPairingRules.js';
 import {
   normalizePlayerIds,
-  resolvePlayerLeague,
+  resolvePlayerDivision,
 } from '@shared/tournament/teamPairing.js';
-import { isSinglesFormat, VALID_LEAGUES } from '@shared/tournament/competitionFormat.js';
-import { getCompetitionFormat } from '../services/leagueSettingsService.js';
+import { isSinglesFormat, VALID_DIVISIONS } from '@shared/tournament/competitionFormat.js';
+import { getCompetitionFormat } from '../services/divisionSettingsService.js';
 import { getMergedPairingRules } from '../services/pairingRuleService.js';
 
 const RULE_TYPES = ['must_pair', 'never_pair', 'prefer_pair'];
 
-async function assertDoublesLeague(league) {
-  const format = await getCompetitionFormat(pool, league);
+async function assertDoublesDivision(division) {
+  const format = await getCompetitionFormat(pool, division);
   if (isSinglesFormat(format)) {
     const error = new Error(
-      `Pairing rules only apply to doubles leagues. ${league} is set to singles.`
+      `Pairing rules only apply to Doubles divisions. ${division} is set to singles.`
     );
     error.statusCode = 400;
     throw error;
@@ -33,10 +33,10 @@ function enrichRulesWithNames(rules, players) {
 
 export const getAllPairingRules = async (req, res, next) => {
   try {
-    const { league } = req.query;
+    const { division } = req.query;
 
     let query = `
-      SELECT r.id, r.player_id, r.related_player_id, r.rule_type, r.league, r.priority,
+      SELECT r.id, r.player_id, r.related_player_id, r.rule_type, r.division, r.priority,
              p1.name AS player_name, p2.name AS related_player_name
       FROM team_pairing_rules r
       JOIN players p1 ON p1.id = r.player_id
@@ -44,15 +44,15 @@ export const getAllPairingRules = async (req, res, next) => {
     `;
     const params = [];
 
-    if (league) {
-      if (!VALID_LEAGUES.includes(league)) {
-        return res.status(400).json({ success: false, message: 'Invalid league' });
+    if (division) {
+      if (!VALID_DIVISIONS.includes(division)) {
+        return res.status(400).json({ success: false, message: 'Invalid division' });
       }
-      query += ' WHERE r.league = ?';
-      params.push(league);
+      query += ' WHERE r.division = ?';
+      params.push(division);
     }
 
-    query += ' ORDER BY r.league, r.rule_type, p1.name, p2.name';
+    query += ' ORDER BY r.division, r.rule_type, p1.name, p2.name';
 
     const [rows] = await pool.execute(query, params);
     res.json({ success: true, data: rows });
@@ -90,15 +90,15 @@ export const createPairingRule = async (req, res, next) => {
       player_id: rawPlayerId,
       related_player_id: rawRelatedPlayerId,
       rule_type,
-      league,
+      division,
       priority = 0,
     } = req.body;
 
-    if (!VALID_LEAGUES.includes(league)) {
-      return res.status(400).json({ success: false, message: 'Invalid league' });
+    if (!VALID_DIVISIONS.includes(division)) {
+      return res.status(400).json({ success: false, message: 'Invalid division' });
     }
 
-    await assertDoublesLeague(league);
+    await assertDoublesDivision(division);
 
     if (!RULE_TYPES.includes(rule_type)) {
       return res.status(400).json({
@@ -144,13 +144,13 @@ export const createPairingRule = async (req, res, next) => {
       });
     }
 
-    const playerLeague = resolvePlayerLeague(player);
-    const relatedLeague = resolvePlayerLeague(relatedPlayer);
+    const playerDivision = resolvePlayerDivision(player);
+    const relatedDivision = resolvePlayerDivision(relatedPlayer);
 
-    if (playerLeague !== league || relatedLeague !== league) {
+    if (playerDivision !== division || relatedDivision !== division) {
       return res.status(400).json({
         success: false,
-        message: `Both players must belong to the ${league} league`,
+        message: `Both players must belong to the ${division} division`,
       });
     }
 
@@ -158,8 +158,8 @@ export const createPairingRule = async (req, res, next) => {
 
     const [existing] = await pool.execute(
       `SELECT id FROM team_pairing_rules
-       WHERE player_id = ? AND related_player_id = ? AND rule_type = ? AND league = ?`,
-      [normalizedPlayerId, normalizedRelatedId, rule_type, league]
+       WHERE player_id = ? AND related_player_id = ? AND rule_type = ? AND division = ?`,
+      [normalizedPlayerId, normalizedRelatedId, rule_type, division]
     );
 
     if (existing.length > 0) {
@@ -177,9 +177,9 @@ export const createPairingRule = async (req, res, next) => {
           : 0;
 
     const [result] = await pool.execute(
-      `INSERT INTO team_pairing_rules (player_id, related_player_id, rule_type, league, priority)
+      `INSERT INTO team_pairing_rules (player_id, related_player_id, rule_type, division, priority)
        VALUES (?, ?, ?, ?, ?)`,
-      [normalizedPlayerId, normalizedRelatedId, rule_type, league, resolvedPriority]
+      [normalizedPlayerId, normalizedRelatedId, rule_type, division, resolvedPriority]
     );
 
     res.status(201).json({
@@ -190,7 +190,7 @@ export const createPairingRule = async (req, res, next) => {
         player_id: normalizedPlayerId,
         related_player_id: normalizedRelatedId,
         rule_type,
-        league,
+        division,
         priority: resolvedPriority,
         player_name: player.name,
         related_player_name: relatedPlayer.name,

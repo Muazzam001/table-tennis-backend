@@ -1,14 +1,14 @@
 import {
-  buildLeagueOverview,
-  getLeagueTeamsWithPlayers,
+  buildDivisionOverview,
+  getDivisionTeamsWithPlayers,
 } from './tournamentOverviewService.js';
 
-const VALID_LEAGUES = ['Expert', 'Intermediate', 'Women'];
+const VALID_DIVISIONS = ['Expert', 'Intermediate', 'Women'];
 
-const LEAGUE_LABELS = {
-  Expert: 'Expert League',
-  Intermediate: 'Intermediate League',
-  Women: 'Women League',
+const DIVISION_LABELS = {
+  Expert: 'Expert Division',
+  Intermediate: 'Intermediate Division',
+  Women: 'Women Division',
 };
 
 /**
@@ -18,7 +18,7 @@ export async function ensureTournamentArchivesTable(db) {
   await db.query(
     `CREATE TABLE IF NOT EXISTS tournament_archives (
       id INT PRIMARY KEY AUTO_INCREMENT,
-      league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+      division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
       name VARCHAR(200) NOT NULL,
       completed_at DATETIME NOT NULL,
       archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -26,7 +26,7 @@ export async function ensureTournamentArchivesTable(db) {
       runner_up_team_name VARCHAR(150) NULL,
       participant_count INT DEFAULT 0,
       snapshot_json JSON NOT NULL,
-      INDEX idx_league (league),
+      INDEX idx_division (division),
       INDEX idx_completed_at (completed_at),
       INDEX idx_archived_at (archived_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
@@ -54,11 +54,11 @@ function getFinalResult(finalMatch) {
 }
 
 /**
- * @param {string} league
+ * @param {string} division
  * @param {Date} completedAt
  */
-function buildArchiveName(league, completedAt) {
-  const label = LEAGUE_LABELS[league] || league;
+function buildArchiveName(division, completedAt) {
+  const label = DIVISION_LABELS[division] || division;
   const dateStr = completedAt.toLocaleDateString('en-GB', {
     day: 'numeric',
     month: 'short',
@@ -69,25 +69,25 @@ function buildArchiveName(league, completedAt) {
 
 /**
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function archiveCompletedLeague(db, league) {
-  if (!VALID_LEAGUES.includes(league)) {
-    throw Object.assign(new Error('Invalid league'), { statusCode: 400 });
+export async function archiveCompletedDivision(db, division) {
+  if (!VALID_DIVISIONS.includes(division)) {
+    throw Object.assign(new Error('Invalid division'), { statusCode: 400 });
   }
 
   await ensureTournamentArchivesTable(db);
 
-  const overview = await buildLeagueOverview(db, league, { healThirdPlace: false });
+  const overview = await buildDivisionOverview(db, division, { healThirdPlace: false });
 
   if (overview.status !== 'Completed') {
     throw Object.assign(
-      new Error(`Cannot archive ${league} league: tournament status is "${overview.status}", expected "Completed"`),
+      new Error(`Cannot archive ${division} division: tournament status is "${overview.status}", expected "Completed"`),
       { statusCode: 400 }
     );
   }
 
-  const teams = await getLeagueTeamsWithPlayers(db, league);
+  const teams = await getDivisionTeamsWithPlayers(db, division);
   const finalMatch = overview.matches.find((m) => m.round_type === 'Final');
   const { champion, runnerUp } = getFinalResult(finalMatch);
   const completedAt = finalMatch?.updated_at
@@ -115,15 +115,15 @@ export async function archiveCompletedLeague(db, league) {
     archivedFrom: 'live',
   };
 
-  const name = buildArchiveName(league, completedAt);
+  const name = buildArchiveName(division, completedAt);
   const participantCount = overview.config?.participantCount || teams.length;
 
   const [insertResult] = await db.execute(
     `INSERT INTO tournament_archives
-      (league, name, completed_at, champion_team_name, runner_up_team_name, participant_count, snapshot_json)
+      (division, name, completed_at, champion_team_name, runner_up_team_name, participant_count, snapshot_json)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
-      league,
+      division,
       name,
       completedAt,
       champion,
@@ -133,11 +133,11 @@ export async function archiveCompletedLeague(db, league) {
     ]
   );
 
-  await clearLeagueTournamentData(db, league);
+  await clearDivisionTournamentData(db, division);
 
   return {
     archiveId: insertResult.insertId,
-    league,
+    division,
     name,
     championTeamName: champion,
     runnerUpTeamName: runnerUp,
@@ -147,35 +147,35 @@ export async function archiveCompletedLeague(db, league) {
 }
 
 /**
- * Remove league teams (matches cascade). Players are preserved for the next season.
+ * Remove division teams (matches cascade). Players are preserved for the next season.
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function clearLeagueTournamentData(db, league) {
-  await db.execute('DELETE FROM teams WHERE league = ?', [league]);
+export async function clearDivisionTournamentData(db, division) {
+  await db.execute('DELETE FROM teams WHERE division = ?', [division]);
 }
 
 /**
  * @param {import('mysql2/promise').Pool} db
- * @param {{ league?: string }} [filters]
+ * @param {{ division?: string }} [filters]
  */
 export async function listTournamentArchives(db, filters = {}) {
   await ensureTournamentArchivesTable(db);
 
   const params = [];
   let where = '';
-  if (filters.league) {
-    if (!VALID_LEAGUES.includes(filters.league)) {
-      throw Object.assign(new Error('Invalid league'), { statusCode: 400 });
+  if (filters.division) {
+    if (!VALID_DIVISIONS.includes(filters.division)) {
+      throw Object.assign(new Error('Invalid division'), { statusCode: 400 });
     }
-    where = 'WHERE league = ?';
-    params.push(filters.league);
+    where = 'WHERE division = ?';
+    params.push(filters.division);
   }
 
   const [rows] = await db.execute(
     `SELECT
       id,
-      league,
+      division,
       name,
       completed_at,
       archived_at,
@@ -201,7 +201,7 @@ export async function getTournamentArchiveById(db, id) {
   const [rows] = await db.execute(
     `SELECT
       id,
-      league,
+      division,
       name,
       completed_at,
       archived_at,
@@ -226,7 +226,7 @@ export async function getTournamentArchiveById(db, id) {
 
   return {
     id: row.id,
-    league: row.league,
+    division: row.division,
     name: row.name,
     completedAt: row.completed_at,
     archivedAt: row.archived_at,

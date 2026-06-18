@@ -1,10 +1,10 @@
 import express from 'express';
 import { body } from 'express-validator';
 import {
-  listLeagueSettings,
-  getLeagueSetting,
-  updateLeagueSetting,
-} from '../controllers/leagueSettingsController.js';
+  listDivisionSettings,
+  getDivisionSetting,
+  updateDivisionSetting,
+} from '../controllers/divisionSettingsController.js';
 import { authenticate, isAdmin } from '../middlewares/auth.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
 
@@ -16,15 +16,15 @@ const formatValidation = [
     .withMessage('competition_format must be doubles or singles'),
 ];
 
-router.get('/', listLeagueSettings);
-router.get('/:league', getLeagueSetting);
+router.get('/', listDivisionSettings);
+router.get('/:division', getDivisionSetting);
 router.put(
-  '/:league',
+  '/:division',
   authenticate,
   isAdmin,
   formatValidation,
   handleValidationErrors,
-  updateLeagueSetting
+  updateDivisionSetting
 );
 
 export default router;

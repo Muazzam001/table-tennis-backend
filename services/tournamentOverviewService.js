@@ -1,8 +1,8 @@
 import {
-  getLeagueMatches,
+  getDivisionMatches,
   getGroupsFromMatches,
   detectFormat,
-  countPlayersForLeague,
+  countPlayersForDivision,
 } from './tournamentService.js';
 import { buildKnockoutBracket, inferSingleGroupTeamCount } from '@shared/tournament/knockout.js';
 import {
@@ -17,22 +17,22 @@ import {
 import { ensureThirdPlaceMatch } from './matchProgressionService.js';
 
 /**
- * Build the full tournament overview payload for a league (live data).
+ * Build the full tournament overview payload for a division (live data).
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  * @param {{ healThirdPlace?: boolean }} [options]
  */
-export async function buildLeagueOverview(db, league, { healThirdPlace = true } = {}) {
+export async function buildDivisionOverview(db, division, { healThirdPlace = true } = {}) {
   if (healThirdPlace) {
     try {
-      await ensureThirdPlaceMatch(db, league);
+      await ensureThirdPlaceMatch(db, division);
     } catch (healError) {
       console.error('Third place auto-heal skipped:', healError.message);
     }
   }
 
-  const matches = await getLeagueMatches(db, league);
-  const groups = await getGroupsFromMatches(db, league);
+  const matches = await getDivisionMatches(db, division);
+  const groups = await getGroupsFromMatches(db, division);
   const groupOrder = Object.keys(groups).sort();
   const format = detectFormat(matches, groups);
   const teamCount =
@@ -63,15 +63,15 @@ export async function buildLeagueOverview(db, league, { healThirdPlace = true } 
   const status = deriveTournamentStatus(matches, { format, teamCount });
   const bracket = buildKnockoutBracket(matches, format);
 
-  const playerCount = await countPlayersForLeague(db, league);
+  const playerCount = await countPlayersForDivision(db, division);
   const [teamRows] = await db.execute(
-    'SELECT COUNT(*) as count FROM teams WHERE league = ?',
-    [league]
+    'SELECT COUNT(*) as count FROM teams WHERE division = ?',
+    [division]
   );
   const setupOptions = getTournamentSetupOptions(teamRows[0].count, playerCount);
 
   return {
-    league,
+    division,
     config,
     format,
     status,
@@ -85,14 +85,14 @@ export async function buildLeagueOverview(db, league, { healThirdPlace = true } 
 
 /**
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function getLeagueTeamsWithPlayers(db, league) {
+export async function getDivisionTeamsWithPlayers(db, division) {
   const [rows] = await db.execute(
     `SELECT
       t.id,
       t.team_name,
-      t.league,
+      t.division,
       t.player1_id,
       t.player2_id,
       p1.name AS player1_name,
@@ -106,9 +106,9 @@ export async function getLeagueTeamsWithPlayers(db, league) {
     FROM teams t
     INNER JOIN players p1 ON t.player1_id = p1.id
     INNER JOIN players p2 ON t.player2_id = p2.id
-    WHERE t.league = ?
+    WHERE t.division = ?
     ORDER BY t.id`,
-    [league]
+    [division]
   );
   return rows;
 }

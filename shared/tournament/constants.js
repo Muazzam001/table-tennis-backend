@@ -4,7 +4,7 @@ export const MIN_TEAMS_PER_GROUP = 2;
 export const DEFAULT_QUALIFIERS_PER_GROUP = 2;
 export const LEGACY_QUALIFIERS_PER_GROUP = 4;
 export const ALLOWED_GROUP_COUNTS = [1, 2, 4, 8, 16];
-/** Leagues with at most this many teams (or 14 players) use one round-robin group. */
+/** Divisions with at most this many teams (or 14 players) use one round-robin group. */
 export const SINGLE_GROUP_MAX_TEAMS = 6;
 export const SINGLE_GROUP_MAX_PLAYERS = 14;
 

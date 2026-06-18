@@ -4,7 +4,7 @@ import { getEffectivePairingRules } from '@shared/tournament/teamPairing.js';
 async function loadDatabasePairingRules() {
   try {
     const [rows] = await pool.execute(
-      `SELECT player_id, related_player_id, rule_type, league, priority
+      `SELECT player_id, related_player_id, rule_type, division, priority
        FROM team_pairing_rules`
     );
     return rows.map((row) => ({ ...row, source: 'database' }));

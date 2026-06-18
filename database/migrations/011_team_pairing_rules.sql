@@ -1,5 +1,5 @@
 -- Doubles team pairing rules (must / never / prefer pair)
--- Only applies when a league's competition_format is doubles.
+-- Only applies when a division's competition_format is doubles.
 -- Usage: mysql -u root -p table_tennis_tournament < database/migrations/011_team_pairing_rules.sql
 
 USE table_tennis_tournament;
@@ -9,14 +9,14 @@ CREATE TABLE IF NOT EXISTS team_pairing_rules (
     player_id INT NOT NULL,
     related_player_id INT NOT NULL,
     rule_type ENUM('must_pair', 'never_pair', 'prefer_pair') NOT NULL,
-    league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
     priority INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_pairing_rule (player_id, related_player_id, rule_type, league),
+    UNIQUE KEY unique_pairing_rule (player_id, related_player_id, rule_type, division),
     INDEX idx_player (player_id),
     INDEX idx_related (related_player_id),
-    INDEX idx_league (league),
+    INDEX idx_division (division),
     INDEX idx_rule_type (rule_type),
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (related_player_id) REFERENCES players(id) ON DELETE CASCADE,

@@ -1,4 +1,4 @@
-export const VALID_LEAGUES = ['Expert', 'Intermediate', 'Women'];
+export const VALID_DIVISIONS = ['Expert', 'Intermediate', 'Women'];
 
 export const COMPETITION_FORMATS = ['doubles', 'singles'];
 
@@ -32,7 +32,7 @@ export function isSinglesTeam(team) {
 }
 
 /**
- * Minimum eligible players required to start a league tournament.
+ * Minimum eligible players required to start a division tournament.
  * @param {string} format
  * @returns {number}
  */

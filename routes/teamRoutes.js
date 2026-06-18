@@ -6,7 +6,7 @@ import {
   createTeam,
   updateTeam,
   deleteTeam,
-  deleteTeamsByLeague,
+  deleteTeamsByDivision,
   generateRandomTeams
 } from '../controllers/teamController.js';
 import { authenticate, isAdmin } from '../middlewares/auth.js';
@@ -30,7 +30,7 @@ router.get('/:id', getTeamById);
 // Admin-only routes (CRUD operations)
 router.post('/', authenticate, isAdmin, teamValidation, handleValidationErrors, createTeam);
 router.put('/:id', authenticate, isAdmin, handleValidationErrors, updateTeam);
-router.delete('/league/:league', authenticate, isAdmin, deleteTeamsByLeague);
+router.delete('/division/:division', authenticate, isAdmin, deleteTeamsByDivision);
 router.delete('/:id', authenticate, isAdmin, deleteTeam);
 router.post('/generate', authenticate, isAdmin, generateRandomTeams);
 

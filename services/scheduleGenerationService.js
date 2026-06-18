@@ -8,22 +8,22 @@ import {
 import { scheduleFixtures, validateDateRangeForMatches } from '@shared/tournament/scheduling.js';
 
 /**
- * Build a complete group-stage schedule for all teams in a league.
+ * Build a complete group-stage schedule for all teams in a division.
  * @param {Array<{ id: number, team_name: string }>} teams
- * @param {string} league
+ * @param {string} division
  * @param {string|Date} startDate
  * @param {string} venue
  * @param {string|Date|null} [endDate]
  * @param {number|null} [groupCount]
  */
-export function buildLeagueGroupStageSchedule(teams, league, startDate, venue, endDate = null, groupCount = null) {
+export function buildDivisionGroupStageSchedule(teams, division, startDate, venue, endDate = null, groupCount = null) {
   const participants = teams.map((t) => ({ id: t.id, team_name: t.team_name }));
   const setup = getTournamentSetupOptions(participants.length);
 
   if (!setup.isValid) {
     throw new Error(
       setup.rejectionReason ||
-        `Cannot build a tournament schedule with ${participants.length} teams in ${league} league.`
+        `Cannot build a tournament schedule with ${participants.length} teams in ${division} division.`
     );
   }
 
@@ -34,7 +34,7 @@ export function buildLeagueGroupStageSchedule(teams, league, startDate, venue, e
   const groups = distributeIntoGroups(participants, config.groupCount);
   const fixtures = generateGroupStageMatches(groups).map((f) => ({
     ...f,
-    league,
+    division,
   }));
 
   const expectedMatchCount = fixtures.length;

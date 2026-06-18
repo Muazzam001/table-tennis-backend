@@ -10,7 +10,7 @@ import statisticsRoutes from './routes/statisticsRoutes.js';
 import teamRoutes from './routes/teamRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import tournamentRoutes from './routes/tournamentRoutes.js';
-import leagueRoutes from './routes/leagueRoutes.js';
+import divisionRoutes from './routes/divisionRoutes.js';
 import teamPairingRuleRoutes from './routes/teamPairingRuleRoutes.js';
 
 const app = express();
@@ -33,7 +33,7 @@ app.use('/api/statistics', statisticsRoutes);
 app.use('/api/seed', seedRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/tournament', tournamentRoutes);
-app.use('/api/leagues', leagueRoutes);
+app.use('/api/divisions', divisionRoutes);
 app.use('/api/team-pairing-rules', teamPairingRuleRoutes);
 
 // Health check

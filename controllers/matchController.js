@@ -24,7 +24,7 @@ import {
   createMatchSlotCursor,
 } from '@shared/tournament/scheduling.js';
 import { tryAutoProgressKnockout, ensureThirdPlaceMatch } from '../services/matchProgressionService.js';
-import { getGroupsFromMatches, detectFormat, countPlayersForLeague } from '../services/tournamentService.js';
+import { getGroupsFromMatches, detectFormat, countPlayersForDivision } from '../services/tournamentService.js';
 
 const parseTimeSlotConfigFromBody = (body = {}) => {
   const { timeSlotConfig } = body;
@@ -45,10 +45,10 @@ const parseCourtConfigFromBody = (body = {}) => {
 // Get all matches
 export const getAllMatches = async (req, res, next) => {
   try {
-    const { league } = req.query;
-    if (league) {
+    const { division } = req.query;
+    if (division) {
       try {
-        await ensureThirdPlaceMatch(pool, league);
+        await ensureThirdPlaceMatch(pool, division);
       } catch (healError) {
         console.error('Third place auto-heal skipped:', healError.message);
       }
@@ -56,9 +56,9 @@ export const getAllMatches = async (req, res, next) => {
 
     let whereClause = '';
     const params = [];
-    if (league) {
-      whereClause = 'WHERE m.league = ?';
-      params.push(league);
+    if (division) {
+      whereClause = 'WHERE m.division = ?';
+      params.push(division);
     }
     const [rows] = await pool.execute(`
       SELECT 
@@ -70,7 +70,7 @@ export const getAllMatches = async (req, res, next) => {
         m.status,
         m.round_type,
         m.pool,
-        m.league,
+        m.division,
         m.winner_team_id,
         m.score_team1,
         m.score_team2,
@@ -107,12 +107,12 @@ export const getAllMatches = async (req, res, next) => {
 export const getMatchesByRound = async (req, res, next) => {
   try {
     const { roundType } = req.params;
-    const { league } = req.query;
+    const { division } = req.query;
     const params = [roundType];
-    let whereLeague = '';
-    if (league) {
-      whereLeague = ' AND m.league = ?';
-      params.push(league);
+    let whereDivision = '';
+    if (division) {
+      whereDivision = ' AND m.division = ?';
+      params.push(division);
     }
     const [rows] = await pool.execute(`
       SELECT 
@@ -122,7 +122,7 @@ export const getMatchesByRound = async (req, res, next) => {
       FROM matches m
       INNER JOIN teams t1 ON m.team1_id = t1.id
       INNER JOIN teams t2 ON m.team2_id = t2.id
-      WHERE m.round_type = ?${whereLeague}
+      WHERE m.round_type = ?${whereDivision}
       ORDER BY m.scheduled_date ASC
     `, params);
     res.json({ success: true, data: rows });
@@ -173,16 +173,16 @@ export const createMatch = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Teams must be different' });
     }
     
-    // Validate teams exist and belong to the same league
-    const [team1Rows] = await pool.execute('SELECT id, league FROM teams WHERE id = ?', [team1_id]);
-    const [team2Rows] = await pool.execute('SELECT id, league FROM teams WHERE id = ?', [team2_id]);
+    // Validate teams exist and belong to the same division
+    const [team1Rows] = await pool.execute('SELECT id, division FROM teams WHERE id = ?', [team1_id]);
+    const [team2Rows] = await pool.execute('SELECT id, division FROM teams WHERE id = ?', [team2_id]);
     if (team1Rows.length === 0 || team2Rows.length === 0) {
       return res.status(400).json({ success: false, message: 'One or both teams not found' });
     }
-    const team1League = team1Rows[0].league;
-    const team2League = team2Rows[0].league;
-    if (team1League !== team2League) {
-      return res.status(400).json({ success: false, message: 'Both teams must belong to the same league' });
+    const team1Division = team1Rows[0].division;
+    const team2Division = team2Rows[0].division;
+    if (team1Division !== team2Division) {
+      return res.status(400).json({ success: false, message: 'Both teams must belong to the same division' });
     }
 
     // Format date for MySQL if it's in ISO format
@@ -201,10 +201,10 @@ export const createMatch = async (req, res, next) => {
       `SELECT id FROM matches 
        WHERE team1_id = ? AND team2_id = ?
        AND round_type = ? 
-       AND league = ?
+       AND division = ?
        AND (pool = ? OR (pool IS NULL AND ? IS NULL))
        AND status != 'Cancelled'`,
-      [normalizedTeam1Id, normalizedTeam2Id, round_type || 'Qualifying', team1League, pool, pool]
+      [normalizedTeam1Id, normalizedTeam2Id, round_type || 'Qualifying', team1Division, pool, pool]
     );
     
     if (existingMatches.length > 0) {
@@ -231,14 +231,14 @@ export const createMatch = async (req, res, next) => {
     }
     
     const [result] = await pool.execute(
-      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', pool || null, team1League]
+      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', pool || null, team1Division]
     );
     
     res.status(201).json({
       success: true,
       message: 'Match created successfully',
-      data: { id: result.insertId, team1_id, team2_id, scheduled_date: formattedDate, venue, round_type, pool, league: team1League }
+      data: { id: result.insertId, team1_id, team2_id, scheduled_date: formattedDate, venue, round_type, pool, division: team1Division }
     });
   } catch (error) {
     // Handle duplicate entry error from database
@@ -252,10 +252,10 @@ export const createMatch = async (req, res, next) => {
   }
 };
 
-// Create multiple matches at once (optional league scopes and validates inserts)
+// Create multiple matches at once (optional division scopes and validates inserts)
 export const createMultipleMatches = async (req, res, next) => {
   try {
-    const { matches, league: requestedLeague } = req.body;
+    const { matches, division: requestedDivision } = req.body;
     
     if (!Array.isArray(matches) || matches.length === 0) {
       return res.status(400).json({ success: false, message: 'Matches array is required' });
@@ -279,34 +279,34 @@ export const createMultipleMatches = async (req, res, next) => {
         venue,
         round_type,
         pool: poolName,
-        league: matchLeague,
+        division: matchDivision,
       } = match;
       
       if (team1_id === team2_id) {
         continue;
       }
       
-      const [team1Rows] = await pool.execute('SELECT id, league FROM teams WHERE id = ?', [team1_id]);
-      const [team2Rows] = await pool.execute('SELECT id, league FROM teams WHERE id = ?', [team2_id]);
+      const [team1Rows] = await pool.execute('SELECT id, division FROM teams WHERE id = ?', [team1_id]);
+      const [team2Rows] = await pool.execute('SELECT id, division FROM teams WHERE id = ?', [team2_id]);
       if (team1Rows.length === 0 || team2Rows.length === 0) {
         continue;
       }
-      const teamLeague = team1Rows[0].league;
-      if (teamLeague !== team2Rows[0].league) {
+      const teamDivision = team1Rows[0].division;
+      if (teamDivision !== team2Rows[0].division) {
         continue;
       }
 
-      const resolvedLeague = matchLeague || requestedLeague || teamLeague;
-      if (resolvedLeague !== teamLeague) {
+      const resolvedDivision = matchDivision || requestedDivision || teamDivision;
+      if (resolvedDivision !== teamDivision) {
         return res.status(400).json({
           success: false,
-          message: `Team league (${teamLeague}) does not match requested league (${resolvedLeague}).`,
+          message: `Team division (${teamDivision}) does not match requested division (${resolvedDivision}).`,
         });
       }
-      if (requestedLeague && resolvedLeague !== requestedLeague) {
+      if (requestedDivision && resolvedDivision !== requestedDivision) {
         return res.status(400).json({
           success: false,
-          message: `Cannot create ${resolvedLeague} match while scoped to ${requestedLeague} league.`,
+          message: `Cannot create ${resolvedDivision} match while scoped to ${requestedDivision} division.`,
         });
       }
 
@@ -319,14 +319,14 @@ export const createMultipleMatches = async (req, res, next) => {
       const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
       
       const [result] = await pool.execute(
-        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', poolName || null, resolvedLeague]
+        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', poolName || null, resolvedDivision]
       );
       
       createdMatches.push({
         id: result.insertId,
         ...match,
-        league: resolvedLeague,
+        division: resolvedDivision,
       });
     }
     
@@ -414,13 +414,13 @@ export const updateMatchResult = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Match not found' });
     }
     
-    const [matchRows] = await pool.execute('SELECT league FROM matches WHERE id = ?', [id]);
-    const league = matchRows[0]?.league;
+    const [matchRows] = await pool.execute('SELECT division FROM matches WHERE id = ?', [id]);
+    const division = matchRows[0]?.division;
 
     let progression = null;
-    if (league && (status === 'Completed' || winner_team_id)) {
+    if (division && (status === 'Completed' || winner_team_id)) {
       try {
-        progression = await tryAutoProgressKnockout(pool, league);
+        progression = await tryAutoProgressKnockout(pool, division);
       } catch (progressError) {
         console.error('Auto-progression skipped:', progressError.message);
       }
@@ -439,13 +439,13 @@ export const updateMatchResult = async (req, res, next) => {
 // Get team standings with full tie-breaker ranking
 export const getTeamStandings = async (req, res, next) => {
   try {
-    const { pool: poolName, roundType, league } = req.query;
+    const { pool: poolName, roundType, division } = req.query;
 
-    if (!poolName || !league) {
-      return res.status(400).json({ success: false, message: 'pool and league query parameters are required' });
+    if (!poolName || !division) {
+      return res.status(400).json({ success: false, message: 'pool and division query parameters are required' });
     }
 
-    const groups = await getGroupsFromMatches(pool, league);
+    const groups = await getGroupsFromMatches(pool, division);
     const teams = groups[poolName] || [];
 
     if (teams.length === 0) {
@@ -454,8 +454,8 @@ export const getTeamStandings = async (req, res, next) => {
 
     const [matchRows] = await pool.execute(
       `SELECT m.* FROM matches m
-       WHERE m.league = ? AND m.pool = ? AND m.round_type = ?`,
-      [league, poolName, roundType || 'Qualifying']
+       WHERE m.division = ? AND m.pool = ? AND m.round_type = ?`,
+      [division, poolName, roundType || 'Qualifying']
     );
 
     const standings = calculateGroupStandings(teams, matchRows);
@@ -469,9 +469,9 @@ export const getTeamStandings = async (req, res, next) => {
 // Generate Quarter Finals from group stage results
 export const generateQuarterFinals = async (req, res, next) => {
   try {
-    const { startDate, venue, league } = req.body;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League is required to generate Quarter Finals' });
+    const { startDate, venue, division } = req.body;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division is required to generate Quarter Finals' });
     }
 
     let timeSlotConfig;
@@ -489,8 +489,8 @@ export const generateQuarterFinals = async (req, res, next) => {
     }
 
     const [existingQF] = await pool.execute(
-      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Quarter Final' AND league = ?",
-      [league]
+      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Quarter Final' AND division = ?",
+      [division]
     );
     if (existingQF[0].count > 0) {
       return res.status(400).json({
@@ -500,10 +500,10 @@ export const generateQuarterFinals = async (req, res, next) => {
     }
 
     const [allMatches] = await pool.execute(
-      "SELECT * FROM matches WHERE league = ? AND round_type = 'Qualifying'",
-      [league]
+      "SELECT * FROM matches WHERE division = ? AND round_type = 'Qualifying'",
+      [division]
     );
-    const groups = await getGroupsFromMatches(pool, league);
+    const groups = await getGroupsFromMatches(pool, division);
     const format = detectFormat(allMatches, groups);
     const groupOrder = Object.keys(groups).sort();
     const teamCount = inferSingleGroupTeamCount(allMatches, format) ?? groupOrder.reduce(
@@ -529,8 +529,8 @@ export const generateQuarterFinals = async (req, res, next) => {
       const { scheduled_date: scheduled, venue: matchVenue } = slotCursor.getNext();
 
       const [result] = await pool.execute(
-        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [normalizedTeam1Id, normalizedTeam2Id, scheduled, matchVenue, roundType, null, league]
+        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [normalizedTeam1Id, normalizedTeam2Id, scheduled, matchVenue, roundType, null, division]
       );
 
       createdMatches.push({
@@ -541,14 +541,14 @@ export const generateQuarterFinals = async (req, res, next) => {
         venue: matchVenue,
         round_type: roundType,
         label: pairing.label,
-        league,
+        division,
       });
     }
 
     if (roundType === 'Final' && format === 'single-group' && teamCount === 4) {
       const [existingThird] = await pool.execute(
-        "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND league = ?",
-        [league]
+        "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND division = ?",
+        [division]
       );
       if (existingThird[0].count === 0) {
         const fullStandings = getFullGroupStandings(groups, allMatches, groupOrder[0]);
@@ -564,7 +564,7 @@ export const generateQuarterFinals = async (req, res, next) => {
         const { scheduled_date: scheduled, venue: matchVenue } = slotCursor.getNext();
 
         const [thirdResult] = await pool.execute(
-          'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [
             normalizedTeam1Id,
             normalizedTeam2Id,
@@ -572,7 +572,7 @@ export const generateQuarterFinals = async (req, res, next) => {
             matchVenue,
             'Third Place',
             null,
-            league,
+            division,
           ]
         );
 
@@ -584,12 +584,12 @@ export const generateQuarterFinals = async (req, res, next) => {
           venue: matchVenue,
           round_type: 'Third Place',
           label: thirdPairing.label,
-          league,
+          division,
         });
       }
     } else if (roundType === 'Final') {
       try {
-        await ensureThirdPlaceMatch(pool, league);
+        await ensureThirdPlaceMatch(pool, division);
       } catch (progressError) {
         console.error('Third place auto-creation skipped:', progressError.message);
       }
@@ -619,9 +619,9 @@ export const generateQuarterFinals = async (req, res, next) => {
 // Generate Semi Finals from Quarter Finals results
 export const generateSemiFinals = async (req, res, next) => {
   try {
-    const { startDate, venue, league } = req.body;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League is required to generate Semi Finals' });
+    const { startDate, venue, division } = req.body;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division is required to generate Semi Finals' });
     }
 
     let timeSlotConfig;
@@ -640,8 +640,8 @@ export const generateSemiFinals = async (req, res, next) => {
     
     // Check if Quarter Finals exist and are all completed
     const [quarterFinals] = await pool.execute(
-      "SELECT * FROM matches WHERE round_type = 'Quarter Final' AND league = ? ORDER BY scheduled_date",
-      [league]
+      "SELECT * FROM matches WHERE round_type = 'Quarter Final' AND division = ? ORDER BY scheduled_date",
+      [division]
     );
     
     if (quarterFinals.length === 0) {
@@ -655,7 +655,7 @@ export const generateSemiFinals = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message:
-          'This league has 4 knockout teams (2 groups). Complete both Quarter Final matches and generate the Final directly — Semi Finals are not used.',
+          'This division has 4 knockout teams (2 groups). Complete both Quarter Final matches and generate the Final directly — Semi Finals are not used.',
       });
     }
     
@@ -676,8 +676,8 @@ export const generateSemiFinals = async (req, res, next) => {
     
     // Check if Semi Finals already exist
     const [existingSF] = await pool.execute(
-      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Semi Final' AND league = ?",
-      [league]
+      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Semi Final' AND division = ?",
+      [division]
     );
     
     if (existingSF[0].count > 0) {
@@ -730,7 +730,7 @@ export const generateSemiFinals = async (req, res, next) => {
         venue: slot.venue,
         round_type: 'Semi Final',
         pool: null,
-        league
+        division
       });
     }
     
@@ -738,8 +738,8 @@ export const generateSemiFinals = async (req, res, next) => {
     const createdMatches = [];
     for (const match of matches) {
       const [result] = await pool.execute(
-        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [match.team1_id, match.team2_id, match.scheduled_date, match.venue, match.round_type, match.pool, match.league]
+        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [match.team1_id, match.team2_id, match.scheduled_date, match.venue, match.round_type, match.pool, match.division]
       );
       createdMatches.push({
         id: result.insertId,
@@ -766,9 +766,9 @@ export const generateSemiFinals = async (req, res, next) => {
 // Generate Final from Semi Finals results
 export const generateFinal = async (req, res, next) => {
   try {
-    const { startDate, venue, league } = req.body;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League is required to generate Final' });
+    const { startDate, venue, division } = req.body;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division is required to generate Final' });
     }
 
     let timeSlotConfig;
@@ -786,18 +786,18 @@ export const generateFinal = async (req, res, next) => {
     }
     
     const [semiFinals] = await pool.execute(
-      "SELECT m.*, t1.team_name as team1_name, t2.team_name as team2_name FROM matches m INNER JOIN teams t1 ON m.team1_id = t1.id INNER JOIN teams t2 ON m.team2_id = t2.id WHERE m.round_type = 'Semi Final' AND m.league = ? ORDER BY m.scheduled_date",
-      [league]
+      "SELECT m.*, t1.team_name as team1_name, t2.team_name as team2_name FROM matches m INNER JOIN teams t1 ON m.team1_id = t1.id INNER JOIN teams t2 ON m.team2_id = t2.id WHERE m.round_type = 'Semi Final' AND m.division = ? ORDER BY m.scheduled_date",
+      [division]
     );
 
     const [quarterFinals] = await pool.execute(
-      "SELECT m.*, t1.team_name as team1_name, t2.team_name as team2_name FROM matches m INNER JOIN teams t1 ON m.team1_id = t1.id INNER JOIN teams t2 ON m.team2_id = t2.id WHERE m.round_type = 'Quarter Final' AND m.league = ? ORDER BY m.scheduled_date",
-      [league]
+      "SELECT m.*, t1.team_name as team1_name, t2.team_name as team2_name FROM matches m INNER JOIN teams t1 ON m.team1_id = t1.id INNER JOIN teams t2 ON m.team2_id = t2.id WHERE m.round_type = 'Quarter Final' AND m.division = ? ORDER BY m.scheduled_date",
+      [division]
     );
 
     const [existingFinal] = await pool.execute(
-      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final' AND league = ?",
-      [league]
+      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final' AND division = ?",
+      [division]
     );
 
     if (existingFinal[0].count > 0) {
@@ -840,7 +840,7 @@ export const generateFinal = async (req, res, next) => {
     } else {
       return res.status(400).json({
         success: false,
-        message: 'Complete Semi Finals first, or complete both Quarter Finals when this league uses 2 groups.',
+        message: 'Complete Semi Finals first, or complete both Quarter Finals when this division uses 2 groups.',
       });
     }
 
@@ -861,13 +861,13 @@ export const generateFinal = async (req, res, next) => {
       venue: finalSlot.venue,
       round_type: 'Final',
       pool: null,
-      league
+      division
     };
     
     // Insert match into database
     const [result] = await pool.execute(
-      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [finalMatch.team1_id, finalMatch.team2_id, finalMatch.scheduled_date, finalMatch.venue, finalMatch.round_type, finalMatch.pool, finalMatch.league]
+      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [finalMatch.team1_id, finalMatch.team2_id, finalMatch.scheduled_date, finalMatch.venue, finalMatch.round_type, finalMatch.pool, finalMatch.division]
     );
     
     const createdMatch = {
@@ -877,7 +877,7 @@ export const generateFinal = async (req, res, next) => {
 
     let progression = null;
     try {
-      const thirdPlace = await ensureThirdPlaceMatch(pool, league);
+      const thirdPlace = await ensureThirdPlaceMatch(pool, division);
       if (thirdPlace.created) {
         progression = { progressed: true, round: 'Third Place', matches: thirdPlace.matches };
       }
@@ -913,14 +913,14 @@ export const generateMatchSchedule = async (req, res, next) => {
       startDate,
       endDate,
       venue,
-      league,
+      division,
       format = 'groups',
       groupCount,
       replaceExisting = false,
     } = req.body;
 
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League is required to generate schedule' });
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division is required to generate schedule' });
     }
     if (!startDate) {
       return res.status(400).json({ success: false, message: 'Start date is required' });
@@ -947,31 +947,31 @@ export const generateMatchSchedule = async (req, res, next) => {
     }
 
     const [teams] = await pool.execute(
-      'SELECT id, team_name FROM teams WHERE league = ? ORDER BY id',
-      [league]
+      'SELECT id, team_name FROM teams WHERE division = ? ORDER BY id',
+      [division]
     );
 
     const teamCount = teams.length;
-    const playerCount = await countPlayersForLeague(pool, league);
+    const playerCount = await countPlayersForDivision(pool, division);
 
     const [existingQualifying] = await pool.execute(
-      "SELECT COUNT(*) as count FROM matches WHERE league = ? AND round_type = 'Qualifying'",
-      [league]
+      "SELECT COUNT(*) as count FROM matches WHERE division = ? AND round_type = 'Qualifying'",
+      [division]
     );
     const existingQualifyingCount = existingQualifying[0].count;
 
     if (existingQualifyingCount > 0 && !replaceExisting) {
       return res.status(400).json({
         success: false,
-        message: `${existingQualifyingCount} qualifying match(es) already exist for ${league} league. Regenerate with replaceExisting to replace them.`,
+        message: `${existingQualifyingCount} qualifying match(es) already exist for ${division} division. Regenerate with replaceExisting to replace them.`,
         data: { existingQualifyingCount, teamCount },
       });
     }
 
     if (existingQualifyingCount > 0 && replaceExisting) {
       await pool.execute(
-        "DELETE FROM matches WHERE league = ? AND round_type = 'Qualifying'",
-        [league]
+        "DELETE FROM matches WHERE division = ? AND round_type = 'Qualifying'",
+        [division]
       );
     }
 
@@ -989,7 +989,7 @@ export const generateMatchSchedule = async (req, res, next) => {
         if (teamCount < 4 || teamCount % 2 !== 0) {
           return res.status(400).json({
             success: false,
-            message: `Tournament requires an even number of teams (minimum 4). ${league} league has ${teamCount}.`,
+            message: `Tournament requires an even number of teams (minimum 4). ${division} division has ${teamCount}.`,
           });
         }
         config = groupCount
@@ -1002,7 +1002,7 @@ export const generateMatchSchedule = async (req, res, next) => {
 
     const participants = teams;
     const groups = distributeIntoGroups(participants, config.groupCount);
-    const fixtures = generateGroupStageMatches(groups).map((f) => ({ ...f, league }));
+    const fixtures = generateGroupStageMatches(groups).map((f) => ({ ...f, division }));
     const expectedMatchCount = countQualifyingMatches(teamCount, config.groupCount);
     const rangeCheck = validateDateRangeForMatches(
       startDate,
@@ -1039,17 +1039,17 @@ export const generateMatchSchedule = async (req, res, next) => {
       if (team1_id === team2_id) continue;
 
       const [team1Rows] = await pool.execute(
-        'SELECT id, league FROM teams WHERE id = ? AND league = ?',
-        [team1_id, league]
+        'SELECT id, division FROM teams WHERE id = ? AND division = ?',
+        [team1_id, division]
       );
       const [team2Rows] = await pool.execute(
-        'SELECT id, league FROM teams WHERE id = ? AND league = ?',
-        [team2_id, league]
+        'SELECT id, division FROM teams WHERE id = ? AND division = ?',
+        [team2_id, division]
       );
       if (team1Rows.length === 0 || team2Rows.length === 0) {
         return res.status(400).json({
           success: false,
-          message: `Schedule fixture references teams outside ${league} league. Regenerate teams for this league and try again.`,
+          message: `Schedule fixture references teams outside ${division} division. Regenerate teams for this division and try again.`,
         });
       }
 
@@ -1057,7 +1057,7 @@ export const generateMatchSchedule = async (req, res, next) => {
       const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
 
       const [result] = await pool.execute(
-        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [
           normalizedTeam1Id,
           normalizedTeam2Id,
@@ -1065,7 +1065,7 @@ export const generateMatchSchedule = async (req, res, next) => {
           match.venue || venue || 'Main Court',
           round_type || 'Qualifying',
           poolName || null,
-          league,
+          division,
         ]
       );
 
@@ -1077,7 +1077,7 @@ export const generateMatchSchedule = async (req, res, next) => {
         venue: match.venue || venue || 'Main Court',
         round_type: round_type || 'Qualifying',
         pool: poolName || null,
-        league,
+        division,
       });
     }
 
@@ -1090,7 +1090,7 @@ export const generateMatchSchedule = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: `Group stage schedule generated for ${league} league. ${createdMatches.length} qualifying matches across ${config.groupCount} groups (${config.groupSize} teams each).`,
+      message: `Group stage schedule generated for ${division} division. ${createdMatches.length} qualifying matches across ${config.groupCount} groups (${config.groupSize} teams each).`,
       data: {
         matches: createdMatches,
         groups: groupSummary,
@@ -1106,7 +1106,7 @@ export const generateMatchSchedule = async (req, res, next) => {
           firstMatch: createdMatches[0]?.scheduled_date ?? null,
           lastMatch: createdMatches[createdMatches.length - 1]?.scheduled_date ?? null,
         },
-        league,
+        division,
       },
     });
   } catch (error) {
@@ -1117,9 +1117,9 @@ export const generateMatchSchedule = async (req, res, next) => {
 // Generate Third Place match from Semi Final losers
 export const generateThirdPlace = async (req, res, next) => {
   try {
-    const { startDate, venue, league } = req.body;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League is required' });
+    const { startDate, venue, division } = req.body;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division is required' });
     }
 
     let timeSlotConfig;
@@ -1137,8 +1137,8 @@ export const generateThirdPlace = async (req, res, next) => {
     }
 
     const [existing] = await pool.execute(
-      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND league = ?",
-      [league]
+      "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND division = ?",
+      [division]
     );
     if (existing[0].count > 0) {
       return res.status(400).json({ success: false, message: 'Third Place match already generated.' });
@@ -1149,9 +1149,9 @@ export const generateThirdPlace = async (req, res, next) => {
        FROM matches m
        INNER JOIN teams t1 ON m.team1_id = t1.id
        INNER JOIN teams t2 ON m.team2_id = t2.id
-       WHERE m.round_type = 'Semi Final' AND m.league = ?
+       WHERE m.round_type = 'Semi Final' AND m.division = ?
        ORDER BY m.scheduled_date`,
-      [league]
+      [division]
     );
 
     const [quarterFinals] = await pool.execute(
@@ -1159,9 +1159,9 @@ export const generateThirdPlace = async (req, res, next) => {
        FROM matches m
        INNER JOIN teams t1 ON m.team1_id = t1.id
        INNER JOIN teams t2 ON m.team2_id = t2.id
-       WHERE m.round_type = 'Quarter Final' AND m.league = ?
+       WHERE m.round_type = 'Quarter Final' AND m.division = ?
        ORDER BY m.scheduled_date`,
-      [league]
+      [division]
     );
 
     let pairing;
@@ -1185,8 +1185,8 @@ export const generateThirdPlace = async (req, res, next) => {
       pairing = resolveThirdPlacePairing({ quarterFinals });
     } else {
       const [allMatches] = await pool.execute(
-        "SELECT * FROM matches WHERE league = ? AND round_type = 'Qualifying'",
-        [league]
+        "SELECT * FROM matches WHERE division = ? AND round_type = 'Qualifying'",
+        [division]
       );
       const incompleteQualifying = allMatches.filter(
         (m) => m.status !== 'Completed' || !m.winner_team_id
@@ -1199,8 +1199,8 @@ export const generateThirdPlace = async (req, res, next) => {
       }
 
       const [existingFinal] = await pool.execute(
-        "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final' AND league = ?",
-        [league]
+        "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final' AND division = ?",
+        [division]
       );
       if (existingFinal[0].count === 0) {
         return res.status(400).json({
@@ -1209,7 +1209,7 @@ export const generateThirdPlace = async (req, res, next) => {
         });
       }
 
-      const groups = await getGroupsFromMatches(pool, league);
+      const groups = await getGroupsFromMatches(pool, division);
       const format = detectFormat(allMatches, groups);
       const groupOrder = Object.keys(groups).sort();
       const teamCount =
@@ -1233,8 +1233,8 @@ export const generateThirdPlace = async (req, res, next) => {
     const matchVenue = thirdPlaceSlot.venue;
 
     const [result] = await pool.execute(
-      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, league) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [team1Id, team2Id, scheduled, matchVenue, 'Third Place', null, league]
+      'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [team1Id, team2Id, scheduled, matchVenue, 'Third Place', null, division]
     );
 
     res.json({
@@ -1248,7 +1248,7 @@ export const generateThirdPlace = async (req, res, next) => {
           scheduled_date: scheduled,
           venue: matchVenue,
           round_type: 'Third Place',
-          league,
+          division,
         },
       },
     });

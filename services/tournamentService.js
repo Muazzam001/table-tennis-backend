@@ -35,16 +35,16 @@ export {
 /**
  * Build groups map from qualifying matches (teams per pool).
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function getGroupsFromMatches(db, league) {
+export async function getGroupsFromMatches(db, division) {
   const [rows] = await db.execute(
     `SELECT DISTINCT m.pool, t.id, t.team_name
      FROM matches m
      INNER JOIN teams t ON (t.id = m.team1_id OR t.id = m.team2_id)
-     WHERE m.round_type = 'Qualifying' AND m.league = ? AND m.pool IS NOT NULL
+     WHERE m.round_type = 'Qualifying' AND m.division = ? AND m.pool IS NOT NULL
      ORDER BY m.pool, t.id`,
-    [league]
+    [division]
   );
 
   /** @type {Record<string, { id: number, team_name: string }[]>} */
@@ -60,17 +60,17 @@ export async function getGroupsFromMatches(db, league) {
 
 /**
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function countPlayersForLeague(db, league) {
+export async function countPlayersForDivision(db, division) {
   let query = '';
-  if (league === 'Expert') {
+  if (division === 'Expert') {
     query =
       'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL)';
-  } else if (league === 'Intermediate') {
+  } else if (division === 'Intermediate') {
     query =
       'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL)';
-  } else if (league === 'Women') {
+  } else if (division === 'Women') {
     query = 'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND category = "Women"';
   } else {
     return 0;
@@ -81,17 +81,17 @@ export async function countPlayersForLeague(db, league) {
 
 /**
  * @param {import('mysql2/promise').Pool} db
- * @param {string} league
+ * @param {string} division
  */
-export async function getLeagueMatches(db, league) {
+export async function getDivisionMatches(db, division) {
   const [rows] = await db.execute(
     `SELECT m.*, t1.team_name AS team1_name, t2.team_name AS team2_name
      FROM matches m
      INNER JOIN teams t1 ON m.team1_id = t1.id
      INNER JOIN teams t2 ON m.team2_id = t2.id
-     WHERE m.league = ?
+     WHERE m.division = ?
      ORDER BY m.scheduled_date ASC`,
-    [league]
+    [division]
   );
   return rows;
 }

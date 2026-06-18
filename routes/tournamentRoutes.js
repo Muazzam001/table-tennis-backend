@@ -2,7 +2,7 @@ import express from 'express';
 import {
   getTournamentOverview,
   getTournamentSetup,
-  getLeagueGroups,
+  getDivisionGroups,
 } from '../controllers/tournamentController.js';
 import {
   archiveTournament,
@@ -14,7 +14,7 @@ import { authenticate, isAdmin } from '../middlewares/auth.js';
 const router = express.Router();
 
 router.get('/setup', getTournamentSetup);
-router.get('/groups', getLeagueGroups);
+router.get('/groups', getDivisionGroups);
 router.get('/overview', getTournamentOverview);
 router.get('/history', getTournamentHistory);
 router.get('/history/:id', getTournamentHistoryDetail);

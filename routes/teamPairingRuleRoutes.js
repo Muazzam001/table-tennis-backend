@@ -18,9 +18,9 @@ const createRuleValidation = [
   body('rule_type')
     .isIn(['must_pair', 'never_pair', 'prefer_pair'])
     .withMessage('rule_type must be must_pair, never_pair, or prefer_pair'),
-  body('league')
+  body('division')
     .isIn(['Expert', 'Intermediate', 'Women'])
-    .withMessage('league must be Expert, Intermediate, or Women'),
+    .withMessage('division must be Expert, Intermediate, or Women'),
   body('priority').optional().isInt({ min: 0, max: 100 }).withMessage('priority must be 0–100'),
 ];
 

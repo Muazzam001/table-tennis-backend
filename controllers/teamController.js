@@ -3,12 +3,12 @@ import { buildDefaultTeamName, normalizeTeamName } from '@shared/tournament/team
 import {
   canFormTeams,
   isSinglesFormat,
-  VALID_LEAGUES,
+  VALID_DIVISIONS,
 } from '@shared/tournament/competitionFormat.js';
 import {
   getCompetitionFormat,
   TEAM_SELECT,
-} from '../services/leagueSettingsService.js';
+} from '../services/divisionSettingsService.js';
 import { getMergedPairingRules } from '../services/pairingRuleService.js';
 import { buildDoublesTeamsWithPairingRules } from '@shared/tournament/teamPairing.js';
 
@@ -21,20 +21,20 @@ const shufflePlayers = (players) => {
   return shuffled;
 };
 
-const getPlayersForLeague = async (league) => {
-  if (league === 'Expert') {
+const getPlayersForDivision = async (division) => {
+  if (division === 'Expert') {
     const [rows] = await pool.execute(
       'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL)'
     );
     return rows;
   }
-  if (league === 'Intermediate') {
+  if (division === 'Intermediate') {
     const [rows] = await pool.execute(
       'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL)'
     );
     return rows;
   }
-  if (league === 'Women') {
+  if (division === 'Women') {
     const [rows] = await pool.execute(
       'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND category = "Women"'
     );
@@ -43,7 +43,7 @@ const getPlayersForLeague = async (league) => {
   return [];
 };
 
-const resolveLeagueFromPlayer = (player) => {
+const resolveDivisionFromPlayer = (player) => {
   const category = player.category || 'Men';
   if (category === 'Women') return 'Women';
   if (player.expertise_level === 'Expert') return 'Expert';
@@ -51,10 +51,10 @@ const resolveLeagueFromPlayer = (player) => {
   return null;
 };
 
-const validatePlayersForLeague = (player1, player2, league, competitionFormat) => {
-  const player1League = resolveLeagueFromPlayer(player1);
-  if (player1League !== league) {
-    return `Player ${player1.name} does not belong to ${league} league.`;
+const validatePlayersForDivision = (player1, player2, division, competitionFormat) => {
+  const player1Division = resolveDivisionFromPlayer(player1);
+  if (player1Division !== division) {
+    return `Player ${player1.name} does not belong to ${division} division.`;
   }
 
   if (isSinglesFormat(competitionFormat)) {
@@ -65,9 +65,9 @@ const validatePlayersForLeague = (player1, player2, league, competitionFormat) =
     return 'Doubles teams require two players.';
   }
 
-  const player2League = resolveLeagueFromPlayer(player2);
-  if (player2League !== league) {
-    return `Player ${player2.name} does not belong to ${league} league.`;
+  const player2Division = resolveDivisionFromPlayer(player2);
+  if (player2Division !== division) {
+    return `Player ${player2.name} does not belong to ${division} division.`;
   }
 
   if (player1.id === player2.id) {
@@ -80,20 +80,20 @@ const validatePlayersForLeague = (player1, player2, league, competitionFormat) =
 // Get all teams with player information
 export const getAllTeams = async (req, res, next) => {
   try {
-    const { league } = req.query;
+    const { division } = req.query;
     const params = [];
-    let leagueFilter = '';
+    let divisionFilter = '';
 
-    if (league) {
-      if (!VALID_LEAGUES.includes(league)) {
-        return res.status(400).json({ success: false, message: 'Invalid league' });
+    if (division) {
+      if (!VALID_DIVISIONS.includes(division)) {
+        return res.status(400).json({ success: false, message: 'Invalid division' });
       }
-      leagueFilter = 'WHERE t.league = ?';
-      params.push(league);
+      divisionFilter = 'WHERE t.division = ?';
+      params.push(division);
     }
 
     const [rows] = await pool.execute(
-      `${TEAM_SELECT} ${leagueFilter} ORDER BY t.created_at DESC`,
+      `${TEAM_SELECT} ${divisionFilter} ORDER BY t.created_at DESC`,
       params
     );
     res.json({ success: true, data: rows });
@@ -124,7 +124,7 @@ export const getTeamById = async (req, res, next) => {
 // Create a new team (manual creation)
 export const createTeam = async (req, res, next) => {
   try {
-    const { team_name, player1_id, player2_id, league: requestedLeague } = req.body;
+    const { team_name, player1_id, player2_id, division: requestedDivision } = req.body;
 
     const [player1Rows] = await pool.execute(
       'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
@@ -139,16 +139,16 @@ export const createTeam = async (req, res, next) => {
     }
 
     const player1 = player1Rows[0];
-    const league = requestedLeague || resolveLeagueFromPlayer(player1);
+    const division = requestedDivision || resolveDivisionFromPlayer(player1);
 
-    if (!league || !VALID_LEAGUES.includes(league)) {
+    if (!division || !VALID_DIVISIONS.includes(division)) {
       return res.status(400).json({
         success: false,
-        message: 'Could not determine league for this player.',
+        message: 'Could not determine division for this player.',
       });
     }
 
-    const competitionFormat = await getCompetitionFormat(pool, league);
+    const competitionFormat = await getCompetitionFormat(pool, division);
     const singles = isSinglesFormat(competitionFormat);
 
     let player2 = null;
@@ -176,26 +176,26 @@ export const createTeam = async (req, res, next) => {
     } else if (player2_id != null) {
       return res.status(400).json({
         success: false,
-        message: 'Singles leagues use one player per team.',
+        message: 'Singles divisions use one player per team.',
       });
     }
 
-    const validationError = validatePlayersForLeague(player1, player2, league, competitionFormat);
+    const validationError = validatePlayersForDivision(player1, player2, division, competitionFormat);
     if (validationError) {
       return res.status(400).json({ success: false, message: validationError });
     }
 
     const normalizedName = normalizeTeamName(
       String(team_name || '').trim() || (singles ? player1.name : ''),
-      league
+      division
     );
     if (!normalizedName) {
       return res.status(400).json({ success: false, message: 'Team name is required' });
     }
 
     const [result] = await pool.execute(
-      'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, ?, ?)',
-      [normalizedName, player1_id, singles ? null : player2_id, league]
+      'INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, ?, ?)',
+      [normalizedName, player1_id, singles ? null : player2_id, division]
     );
 
     res.status(201).json({
@@ -212,7 +212,7 @@ export const createTeam = async (req, res, next) => {
         player2_name: player2?.name ?? null,
         player2_expertise: player2?.expertise_level ?? null,
         player2_category: player2?.category ?? null,
-        league,
+        division,
         competition_format: competitionFormat,
       },
     });
@@ -220,7 +220,7 @@ export const createTeam = async (req, res, next) => {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
         success: false,
-        message: 'This player or team combination already exists in this league',
+        message: 'This player or team combination already exists in this division',
       });
     }
     next(error);
@@ -234,7 +234,7 @@ export const updateTeam = async (req, res, next) => {
     const { team_name, player1_id, player2_id } = req.body;
 
     const [existingTeam] = await pool.execute(
-      'SELECT id, league, player1_id, player2_id FROM teams WHERE id = ?',
+      'SELECT id, division, player1_id, player2_id FROM teams WHERE id = ?',
       [id]
     );
 
@@ -242,8 +242,8 @@ export const updateTeam = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Team not found' });
     }
 
-    const league = existingTeam[0].league;
-    const competitionFormat = await getCompetitionFormat(pool, league);
+    const division = existingTeam[0].division;
+    const competitionFormat = await getCompetitionFormat(pool, division);
     const singles = isSinglesFormat(competitionFormat);
 
     const updateFields = [];
@@ -286,10 +286,10 @@ export const updateTeam = async (req, res, next) => {
         player2 = player2Rows[0];
       }
 
-      const validationError = validatePlayersForLeague(
+      const validationError = validatePlayersForDivision(
         player1Rows[0],
         player2,
-        league,
+        division,
         competitionFormat
       );
       if (validationError) {
@@ -307,7 +307,7 @@ export const updateTeam = async (req, res, next) => {
     }
 
     if (team_name !== undefined) {
-      const trimmedName = normalizeTeamName(String(team_name).trim(), league);
+      const trimmedName = normalizeTeamName(String(team_name).trim(), division);
       if (!trimmedName) {
         return res.status(400).json({ success: false, message: 'Team name is required' });
       }
@@ -331,28 +331,28 @@ export const updateTeam = async (req, res, next) => {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
         success: false,
-        message: 'This player or team combination already exists in this league',
+        message: 'This player or team combination already exists in this division',
       });
     }
     next(error);
   }
 };
 
-// Delete all teams for a league (cascades to that league's matches via FK)
-export const deleteTeamsByLeague = async (req, res, next) => {
+// Delete all teams for a division (cascades to that division's matches via FK)
+export const deleteTeamsByDivision = async (req, res, next) => {
   try {
-    const { league } = req.params;
+    const { division } = req.params;
 
-    if (!VALID_LEAGUES.includes(league)) {
-      return res.status(400).json({ success: false, message: 'Invalid league' });
+    if (!VALID_DIVISIONS.includes(division)) {
+      return res.status(400).json({ success: false, message: 'Invalid division' });
     }
 
-    const [result] = await pool.execute('DELETE FROM teams WHERE league = ?', [league]);
+    const [result] = await pool.execute('DELETE FROM teams WHERE division = ?', [division]);
 
     res.json({
       success: true,
-      message: `Deleted ${result.affectedRows} team(s) from ${league} league`,
-      data: { league, deleted: result.affectedRows },
+      message: `Deleted ${result.affectedRows} team(s) from ${division} division`,
+      data: { division, deleted: result.affectedRows },
     });
   } catch (error) {
     next(error);
@@ -376,40 +376,40 @@ export const deleteTeam = async (req, res, next) => {
   }
 };
 
-// Generate random teams for one league (or all eligible leagues if league omitted)
+// Generate random teams for one division (or all eligible divisions if division omitted)
 export const generateRandomTeams = async (req, res, next) => {
   try {
-    const { league: requestedLeague } = req.body;
+    const { division: requestedDivision } = req.body;
 
-    if (requestedLeague && !VALID_LEAGUES.includes(requestedLeague)) {
-      return res.status(400).json({ success: false, message: 'Invalid league' });
+    if (requestedDivision && !VALID_DIVISIONS.includes(requestedDivision)) {
+      return res.status(400).json({ success: false, message: 'Invalid division' });
     }
 
-    const leaguesToCreate = requestedLeague ? [requestedLeague] : VALID_LEAGUES;
+    const divisionsToCreate = requestedDivision ? [requestedDivision] : VALID_DIVISIONS;
 
     const allTeams = [];
-    const skippedLeagues = [];
+    const skippedDivisions = [];
     const pairingRules = await getMergedPairingRules();
 
-    for (const leagueName of leaguesToCreate) {
-      const competitionFormat = await getCompetitionFormat(pool, leagueName);
+    for (const divisionName of divisionsToCreate) {
+      const competitionFormat = await getCompetitionFormat(pool, divisionName);
       const singles = isSinglesFormat(competitionFormat);
-      const leaguePlayers = await getPlayersForLeague(leagueName);
+      const divisionPlayers = await getPlayersForDivision(divisionName);
 
-      if (!canFormTeams(leaguePlayers.length, competitionFormat)) {
-        if (requestedLeague) {
+      if (!canFormTeams(divisionPlayers.length, competitionFormat)) {
+        if (requestedDivision) {
           return res.status(400).json({
             success: false,
-            message: `Cannot create ${leagueName} ${singles ? 'entrants' : 'teams'}. Need an even number of players (≥ 2). Found ${leaguePlayers.length}.`,
+            message: `Cannot create ${divisionName} ${singles ? 'entrants' : 'teams'}. Need an even number of players (≥ 2). Found ${divisionPlayers.length}.`,
           });
         }
-        skippedLeagues.push({ league: leagueName, playerCount: leaguePlayers.length });
+        skippedDivisions.push({ division: divisionName, playerCount: divisionPlayers.length });
         continue;
       }
 
-      await pool.execute('DELETE FROM teams WHERE league = ?', [leagueName]);
+      await pool.execute('DELETE FROM teams WHERE division = ?', [divisionName]);
 
-      const shuffledPlayers = shufflePlayers(leaguePlayers);
+      const shuffledPlayers = shufflePlayers(divisionPlayers);
 
       if (singles) {
         for (let i = 0; i < shuffledPlayers.length; i += 1) {
@@ -417,22 +417,22 @@ export const generateRandomTeams = async (req, res, next) => {
           const teamName = buildDefaultTeamName(i + 1);
 
           await pool.execute(
-            'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, NULL, ?)',
-            [teamName, player.id, leagueName]
+            'INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, NULL, ?)',
+            [teamName, player.id, divisionName]
           );
 
           allTeams.push({
             teamName,
-            league: leagueName,
+            division: divisionName,
             player1: player,
             player2: null,
           });
         }
       } else {
         const teamPairs = buildDoublesTeamsWithPairingRules(
-          leaguePlayers,
+          divisionPlayers,
           pairingRules,
-          leagueName
+          divisionName
         );
 
         for (let i = 0; i < teamPairs.length; i += 1) {
@@ -440,13 +440,13 @@ export const generateRandomTeams = async (req, res, next) => {
           const teamName = buildDefaultTeamName(i + 1);
 
           await pool.execute(
-            'INSERT INTO teams (team_name, player1_id, player2_id, league) VALUES (?, ?, ?, ?)',
-            [teamName, player1.id, player2.id, leagueName]
+            'INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, ?, ?)',
+            [teamName, player1.id, player2.id, divisionName]
           );
 
           allTeams.push({
             teamName,
-            league: leagueName,
+            division: divisionName,
             player1,
             player2,
           });
@@ -455,21 +455,21 @@ export const generateRandomTeams = async (req, res, next) => {
     }
 
     if (allTeams.length === 0) {
-      const detail = requestedLeague
-        ? `Need an even number of players for ${requestedLeague} league.`
-        : 'No league had enough players with an even count.';
+      const detail = requestedDivision
+        ? `Need an even number of players for ${requestedDivision} division.`
+        : 'No division had enough players with an even count.';
       return res.status(400).json({
         success: false,
         message: `Cannot create teams. ${detail}`,
-        data: { skippedLeagues },
+        data: { skippedDivisions },
       });
     }
 
-    const scope = requestedLeague ? `${requestedLeague} league` : 'eligible leagues';
+    const scope = requestedDivision ? `${requestedDivision} division` : 'eligible divisions';
     res.status(201).json({
       success: true,
       message: `${allTeams.length} entrant(s) generated for ${scope}`,
-      data: { teams: allTeams, skippedLeagues },
+      data: { teams: allTeams, skippedDivisions },
     });
   } catch (error) {
     next(error);

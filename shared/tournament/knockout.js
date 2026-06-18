@@ -209,7 +209,7 @@ export function generateFirstKnockoutPairings(qualified, groupOrder, format, tea
 }
 
 /**
- * Single-group 4-team leagues skip quarter-finals and semi-finals.
+ * Single-group 4-team divisions skip quarter-finals and semi-finals.
  * @param {string} format
  * @param {number} teamCount
  */

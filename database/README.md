@@ -39,13 +39,13 @@ Or use the app: log in as admin → Home → **Seed Demo Players** (auto-creates
 - `is_active`: soft delete
 
 ### `teams`
-- `league`: Expert, Intermediate, Women
-- Two players per team (league rules enforced in app)
+- `division`: Expert, Intermediate, Women
+- Two players per team (division rules enforced in app)
 
 ### `matches`
 - `round_type`: Qualifying, Quarter Final, Semi Final, Final, **Third Place**
 - `pool`: **VARCHAR(5)** — group A–Z (NULL for knockout)
-- `league`: Expert, Intermediate, Women
+- `division`: Expert, Intermediate, Women
 - `is_abandoned`, `abandoned_reason`
 - Unique: `(team1_id, team2_id, round_type, pool)`
 
@@ -91,7 +91,7 @@ The backend seed controller also applies missing columns automatically.
 
 1. Run `seed.sql` (or use in-app **Seed Demo Players** / `POST /api/seed/players`)
 2. Edit players on the **Players** page (optional)
-3. Generate and save teams per league on the **Teams** page (even player counts per league)
+3. Generate and save teams per division on the **Teams** page (even player counts per division)
 4. Generate group-stage and knockout schedules on the **Matches** page
 5. View standings and results on the **Tournament** page
 

@@ -1,6 +1,6 @@
 /**
  * Doubles team pairing rules for random team generation.
- * These rules do not apply to singles leagues (one player per entrant).
+ * These rules do not apply to singles divisions (one player per entrant).
  *
  * Application order:
  * 1. Random doubles pairing with never-pair constraints only
@@ -12,7 +12,7 @@ import { DEFAULT_TEAM_PAIRING_RULES } from './defaultTeamPairingRules.js';
 
 /** @typedef {{ id: number, name?: string, email?: string }} PlayerRef */
 
-/** @typedef {{ player_id: number, related_player_id: number, rule_type: 'must_pair' | 'never_pair' | 'prefer_pair', league?: string, priority?: number, source?: string }} PairingRule */
+/** @typedef {{ player_id: number, related_player_id: number, rule_type: 'must_pair' | 'never_pair' | 'prefer_pair', division?: string, priority?: number, source?: string }} PairingRule */
 
 export const DEFAULT_PREFER_PAIR_CHANCE = 50;
 
@@ -42,7 +42,7 @@ export function normalizePlayerIds(id1, id2) {
  * @param {{ category?: string, expertise_level?: string }} player
  * @returns {'Expert' | 'Intermediate' | 'Women'}
  */
-export function resolvePlayerLeague(player) {
+export function resolvePlayerDivision(player) {
   if (player.category === 'Women') return 'Women';
   return player.expertise_level === 'Expert' ? 'Expert' : 'Intermediate';
 }
@@ -73,20 +73,20 @@ export function shufflePlayers(array, random = Math.random) {
  * @param {PairingRule} rule
  */
 function pairingRuleKey(rule) {
-  return `${rule.league}|${rule.rule_type}|${normalizePlayerPairKey(rule.player_id, rule.related_player_id)}`;
+  return `${rule.division}|${rule.rule_type}|${normalizePlayerPairKey(rule.player_id, rule.related_player_id)}`;
 }
 
 /**
  * @param {PairingRule[]} rules
- * @param {string} league
+ * @param {string} division
  * @param {number} id1
  * @param {number} id2
  */
-function hasNeverPairRule(rules, league, id1, id2) {
+function hasNeverPairRule(rules, division, id1, id2) {
   const pairKey = normalizePlayerPairKey(id1, id2);
   return rules.some(
     (rule) =>
-      rule.league === league &&
+      rule.division === division &&
       rule.rule_type === 'never_pair' &&
       normalizePlayerPairKey(rule.player_id, rule.related_player_id) === pairKey
   );
@@ -94,15 +94,15 @@ function hasNeverPairRule(rules, league, id1, id2) {
 
 /**
  * @param {PairingRule[]} rules
- * @param {string} league
+ * @param {string} division
  * @param {number} id1
  * @param {number} id2
  */
-function hasMustPairRule(rules, league, id1, id2) {
+function hasMustPairRule(rules, division, id1, id2) {
   const pairKey = normalizePlayerPairKey(id1, id2);
   return rules.some(
     (rule) =>
-      rule.league === league &&
+      rule.division === division &&
       rule.rule_type === 'must_pair' &&
       normalizePlayerPairKey(rule.player_id, rule.related_player_id) === pairKey
   );
@@ -136,7 +136,7 @@ export function resolveDefaultPairingRules(players, defaultDefs = DEFAULT_TEAM_P
       player_id,
       related_player_id,
       rule_type: def.rule_type,
-      league: def.league,
+      division: def.division,
       priority:
         def.priority ??
         (def.rule_type === 'must_pair' ? 100 : def.rule_type === 'prefer_pair' ? DEFAULT_PREFER_PAIR_CHANCE : 0),
@@ -166,14 +166,14 @@ export function mergePairingRules(defaultRules, dbRules) {
 
     if (
       (normalized.rule_type === 'must_pair' || normalized.rule_type === 'prefer_pair') &&
-      hasNeverPairRule(merged, normalized.league, normalized.player_id, normalized.related_player_id)
+      hasNeverPairRule(merged, normalized.division, normalized.player_id, normalized.related_player_id)
     ) {
       continue;
     }
 
     if (
       normalized.rule_type === 'prefer_pair' &&
-      hasMustPairRule(merged, normalized.league, normalized.player_id, normalized.related_player_id)
+      hasMustPairRule(merged, normalized.division, normalized.player_id, normalized.related_player_id)
     ) {
       continue;
     }
@@ -194,10 +194,10 @@ export function getEffectivePairingRules(players, dbRules = []) {
   return mergePairingRules(defaults, dbRules);
 }
 
-export function buildNeverPairSet(rules, league) {
+export function buildNeverPairSet(rules, division) {
   const set = new Set();
   for (const rule of rules) {
-    if (rule.league !== league || rule.rule_type !== 'never_pair') continue;
+    if (rule.division !== division || rule.rule_type !== 'never_pair') continue;
     set.add(normalizePlayerPairKey(rule.player_id, rule.related_player_id));
   }
   return set;
@@ -330,23 +330,23 @@ function applyPreferPairRulesToTeams(teams, preferPairRules, neverPairSet, rando
 
 /**
  * Build doubles teams from a player pool while honoring pairing rules.
- * For singles leagues, use individual entrant generation instead.
+ * For singles divisions, use individual entrant generation instead.
  *
  * @param {PlayerRef[]} players
  * @param {PairingRule[]} rules
- * @param {string} league
+ * @param {string} division
  * @param {() => number} [random]
  * @returns {PlayerRef[][]}
  */
-export function buildDoublesTeamsWithPairingRules(players, rules, league, random = Math.random) {
-  const neverPairSet = buildNeverPairSet(rules, league);
+export function buildDoublesTeamsWithPairingRules(players, rules, division, random = Math.random) {
+  const neverPairSet = buildNeverPairSet(rules, division);
 
   const mustPairRules = rules
-    .filter((rule) => rule.league === league && rule.rule_type === 'must_pair')
+    .filter((rule) => rule.division === division && rule.rule_type === 'must_pair')
     .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
   const preferPairRules = rules
-    .filter((rule) => rule.league === league && rule.rule_type === 'prefer_pair')
+    .filter((rule) => rule.division === division && rule.rule_type === 'prefer_pair')
     .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
   const teams = randomPairDoublesWithNeverRules(players, neverPairSet, random);

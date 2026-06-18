@@ -1,13 +1,13 @@
 -- Seed data for testing and development
 -- Seeds players only (28 Expert men). Teams and matches are created via the app:
 --   1. Home page: "Seed Demo Players" (admin)
---   2. Teams page: generate and save teams per league
+--   2. Teams page: generate and save teams per division
 --   3. Matches page: generate group-stage schedule and knockout rounds
 --   API: POST /api/seed/players  (legacy alias: POST /api/seed/teams-and-matches)
 --
--- Tournament note: flexible group stage requires an EVEN number of teams per league
+-- Tournament note: flexible group stage requires an EVEN number of teams per division
 -- (minimum 4). Example: 28 players → 14 Expert teams → 2 groups of 7.
--- Team names are short labels only (e.g. "1", "2"); league is stored on teams.league.
+-- Team names are short labels only (e.g. "1", "2"); division is stored on teams.division.
 --
 -- Usage: mysql -u root -p < database/seed.sql
 -- Prerequisite: database/schema.sql must be applied first

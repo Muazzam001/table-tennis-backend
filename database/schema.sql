@@ -20,32 +20,32 @@ CREATE TABLE IF NOT EXISTS players (
     INDEX idx_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Per-league settings (competition format: singles or doubles)
-CREATE TABLE IF NOT EXISTS league_settings (
-    league ENUM('Expert', 'Intermediate', 'Women') PRIMARY KEY,
+-- Per-division settings (competition format: singles or doubles)
+CREATE TABLE IF NOT EXISTS division_settings (
+    division ENUM('Expert', 'Intermediate', 'Women') PRIMARY KEY,
     competition_format ENUM('doubles', 'singles') NOT NULL DEFAULT 'doubles',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT IGNORE INTO league_settings (league, competition_format) VALUES
+INSERT IGNORE INTO division_settings (division, competition_format) VALUES
     ('Expert', 'doubles'),
     ('Intermediate', 'doubles'),
     ('Women', 'doubles');
 
--- Teams (league-aware: Expert, Intermediate, Women; player2_id NULL for singles)
+-- Teams (division-aware: Expert, Intermediate, Women; player2_id NULL for singles)
 CREATE TABLE IF NOT EXISTS teams (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    team_name VARCHAR(150) NOT NULL COMMENT 'Short display name only; league is in league column',
+    team_name VARCHAR(150) NOT NULL COMMENT 'Short display name only; division is in division column',
     player1_id INT NOT NULL,
-    player2_id INT NULL COMMENT 'NULL for singles leagues (one player per team)',
-    league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    player2_id INT NULL COMMENT 'NULL for singles divisions (one player per team)',
+    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_doubles_team (player1_id, player2_id),
-    UNIQUE KEY unique_singles_entrant (league, player1_id),
+    UNIQUE KEY unique_singles_entrant (division, player1_id),
     INDEX idx_player1 (player1_id),
     INDEX idx_player2 (player2_id),
-    INDEX idx_league (league),
+    INDEX idx_division (division),
     FOREIGN KEY (player1_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (player2_id) REFERENCES players(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS matches (
     status ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled') DEFAULT 'Scheduled',
     round_type ENUM('Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place') DEFAULT 'Qualifying',
     pool VARCHAR(15) NULL COMMENT 'Group id for qualifying (A-Z). NULL for knockout rounds.',
-    league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
     winner_team_id INT NULL,
     score_team1 INT DEFAULT 0,
     score_team2 INT DEFAULT 0,
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS matches (
     INDEX idx_status (status),
     INDEX idx_round_type (round_type),
     INDEX idx_pool (pool),
-    INDEX idx_league (league),
+    INDEX idx_division (division),
     UNIQUE KEY unique_match_teams_round_pool (team1_id, team2_id, round_type, pool),
     FOREIGN KEY (team1_id) REFERENCES teams(id) ON DELETE CASCADE,
     FOREIGN KEY (team2_id) REFERENCES teams(id) ON DELETE CASCADE,
@@ -102,30 +102,30 @@ CREATE TABLE IF NOT EXISTS statistics (
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Doubles team pairing rules (ignored for singles leagues)
+-- Doubles team pairing rules (ignored for singles divisions)
 CREATE TABLE IF NOT EXISTS team_pairing_rules (
     id INT PRIMARY KEY AUTO_INCREMENT,
     player_id INT NOT NULL,
     related_player_id INT NOT NULL,
     rule_type ENUM('must_pair', 'never_pair', 'prefer_pair') NOT NULL,
-    league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
     priority INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY unique_pairing_rule (player_id, related_player_id, rule_type, league),
+    UNIQUE KEY unique_pairing_rule (player_id, related_player_id, rule_type, division),
     INDEX idx_player (player_id),
     INDEX idx_related (related_player_id),
-    INDEX idx_league (league),
+    INDEX idx_division (division),
     INDEX idx_rule_type (rule_type),
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (related_player_id) REFERENCES players(id) ON DELETE CASCADE,
     CHECK (player_id < related_player_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tournament archives (completed league snapshots for historical viewing)
+-- Tournament archives (completed division snapshots for historical viewing)
 CREATE TABLE IF NOT EXISTS tournament_archives (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    league ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
     name VARCHAR(200) NOT NULL,
     completed_at DATETIME NOT NULL,
     archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS tournament_archives (
     runner_up_team_name VARCHAR(150) NULL,
     participant_count INT DEFAULT 0,
     snapshot_json JSON NOT NULL,
-    INDEX idx_league (league),
+    INDEX idx_division (division),
     INDEX idx_completed_at (completed_at),
     INDEX idx_archived_at (archived_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -23,7 +23,7 @@ export type RoundType =
 export interface Team {
   id: number;
   team_name: string;
-  league?: string;
+  division?: string;
 }
 
 export interface MatchResult {
@@ -44,7 +44,7 @@ export interface Match extends MatchResult {
   venue?: string;
   round_type: RoundType;
   pool?: PoolId | null;
-  league?: string;
+  division?: string;
 }
 
 export interface TournamentConfig {

@@ -1,6 +1,6 @@
 import pool from '../utils/database.js';
-import { countPlayersForLeague } from '../services/tournamentService.js';
-import { getCompetitionFormat } from '../services/leagueSettingsService.js';
+import { countPlayersForDivision } from '../services/tournamentService.js';
+import { getCompetitionFormat } from '../services/divisionSettingsService.js';
 import { getTournamentSetupOptions } from '@shared/tournament/constants.js';
 import { countQualifyingMatches } from '@shared/tournament/matchGeneration.js';
 import {
@@ -11,12 +11,12 @@ import {
   formatTimeLabel,
 } from '@shared/tournament/scheduling.js';
 import { getGroupsFromMatches } from '../services/tournamentService.js';
-import { buildLeagueOverview } from '../services/tournamentOverviewService.js';
+import { buildDivisionOverview } from '../services/tournamentOverviewService.js';
 
 export const getTournamentSetup = async (req, res, next) => {
   try {
     const {
-      league,
+      division,
       startDate,
       groupCount: groupCountParam,
       startTime,
@@ -24,17 +24,17 @@ export const getTournamentSetup = async (req, res, next) => {
       intervalMinutes,
       courtCount: courtCountParam,
     } = req.query;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League query parameter is required' });
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
 
     const [teams] = await pool.execute(
-      'SELECT id FROM teams WHERE league = ? ORDER BY id',
-      [league]
+      'SELECT id FROM teams WHERE division = ? ORDER BY id',
+      [division]
     );
 
-    const playerCount = await countPlayersForLeague(pool, league);
-    const competitionFormat = await getCompetitionFormat(pool, league);
+    const playerCount = await countPlayersForDivision(pool, division);
+    const competitionFormat = await getCompetitionFormat(pool, division);
     const options = getTournamentSetupOptions(teams.length, playerCount);
     const resolvedGroupCount = groupCountParam
       ? Number(groupCountParam)
@@ -75,7 +75,7 @@ export const getTournamentSetup = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        league,
+        division,
         competition_format: competitionFormat,
         ...options,
         scheduling,
@@ -86,14 +86,14 @@ export const getTournamentSetup = async (req, res, next) => {
   }
 };
 
-export const getLeagueGroups = async (req, res, next) => {
+export const getDivisionGroups = async (req, res, next) => {
   try {
-    const { league } = req.query;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League query parameter is required' });
+    const { division } = req.query;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
 
-    const groups = await getGroupsFromMatches(pool, league);
+    const groups = await getGroupsFromMatches(pool, division);
     /** @type {Record<number, string>} */
     const teamGroupMap = {};
     for (const [poolId, poolTeams] of Object.entries(groups)) {
@@ -105,7 +105,7 @@ export const getLeagueGroups = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        league,
+        division,
         groups: Object.entries(groups)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([id, poolTeams]) => ({ id, teams: poolTeams })),
@@ -119,12 +119,12 @@ export const getLeagueGroups = async (req, res, next) => {
 
 export const getTournamentOverview = async (req, res, next) => {
   try {
-    const { league } = req.query;
-    if (!league) {
-      return res.status(400).json({ success: false, message: 'League query parameter is required' });
+    const { division } = req.query;
+    if (!division) {
+      return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
 
-    const data = await buildLeagueOverview(pool, league);
+    const data = await buildDivisionOverview(pool, division);
 
     res.json({
       success: true,
