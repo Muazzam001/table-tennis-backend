@@ -2,6 +2,7 @@ import {
   VALID_DIVISIONS,
   isValidCompetitionFormat,
 } from '@shared/tournament/competitionFormat.js';
+import { ensureDivisionSchema } from './divisionSchemaMigrationService.js';
 
 const DEFAULT_FORMAT = 'doubles';
 
@@ -29,9 +30,11 @@ const TEAM_SELECT = `
  * @param {import('mysql2/promise').Pool} db
  */
 export async function ensureDivisionSettingsTable(db) {
+  await ensureDivisionSchema(db);
+
   await db.execute(`
     CREATE TABLE IF NOT EXISTS division_settings (
-      division ENUM('Expert', 'Intermediate', 'Women') PRIMARY KEY,
+      division ENUM('Men', 'Women') PRIMARY KEY,
       competition_format ENUM('doubles', 'singles') NOT NULL DEFAULT 'doubles',
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -63,8 +66,9 @@ export async function getCompetitionFormat(db, division) {
  */
 export async function getAllDivisionSettings(db) {
   await ensureDivisionSettingsTable(db);
+  const order = VALID_DIVISIONS.map((d) => `"${d}"`).join(', ');
   const [rows] = await db.execute(
-    'SELECT division, competition_format, updated_at FROM division_settings ORDER BY FIELD(division, "Expert", "Intermediate", "Women")'
+    `SELECT division, competition_format, updated_at FROM division_settings ORDER BY FIELD(division, ${order})`
   );
   return rows;
 }

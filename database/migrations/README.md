@@ -40,6 +40,7 @@ Run migrations **in order**:
 | 010 | `010_division_settings_and_singles.sql` | Per-division singles/doubles format |
 | 011 | `011_team_pairing_rules.sql` | Doubles pairing rules (must / never / prefer) |
 | 012 | `012_upgrade_division_columns.sql` | Upgrade legacy column names to `division` |
+| 013 | `013_ensure_division_columns.sql` | Verify/rename any remaining legacy `league` columns |
 
 ```bash
 mysql -u root -p table_tennis_tournament < database/migrations/001_add_round_type_and_pool.sql

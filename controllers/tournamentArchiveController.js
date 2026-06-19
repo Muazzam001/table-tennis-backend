@@ -5,12 +5,16 @@ import {
   getTournamentArchiveById,
 } from '../services/tournamentArchiveService.js';
 
+import { rejectInvalidDivision } from '../utils/divisionParam.js';
+
 export const archiveTournament = async (req, res, next) => {
   try {
-    const { division } = req.query;
-    if (!division) {
+    const { division: rawDivision } = req.query;
+    if (!rawDivision) {
       return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
 
     const result = await archiveCompletedDivision(pool, division);
 
@@ -29,7 +33,10 @@ export const archiveTournament = async (req, res, next) => {
 
 export const getTournamentHistory = async (req, res, next) => {
   try {
-    const { division } = req.query;
+    const { division: rawDivision } = req.query;
+    const division = rawDivision ? rejectInvalidDivision(res, rawDivision) : undefined;
+    if (rawDivision && division === undefined) return;
+
     const archives = await listTournamentArchives(pool, { division });
 
     res.json({

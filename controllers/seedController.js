@@ -2,6 +2,10 @@ import 'dotenv/config';
 import mysql from 'mysql2/promise';
 import pool from '../utils/database.js';
 import { truncateTournamentTablesWithPool } from '../utils/tournamentDataReset.js';
+import {
+  VALID_DIVISIONS,
+  countPlayersByDivision,
+} from '@shared/tournament/competitionFormat.js';
 
 // { name: 'Waheed A', email: 'waheed.a@ebitlogix.com' },
 // { name: 'Mahboob H', email: 'mahboob.h@ebitlogix.com' },
@@ -302,7 +306,7 @@ const ensureDatabaseAndTables = async () => {
         id INT PRIMARY KEY AUTO_INCREMENT,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
-        expertise_level ENUM('Intermediate', 'Expert') NOT NULL,
+        expertise_level ENUM('Beginner', 'Intermediate', 'Expert') NOT NULL DEFAULT 'Beginner',
         category ENUM('Men', 'Women') DEFAULT 'Men',
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -317,7 +321,7 @@ const ensureDatabaseAndTables = async () => {
         team_name VARCHAR(100) NOT NULL,
         player1_id INT NOT NULL,
         player2_id INT NOT NULL,
-        division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+        division ENUM('Men', 'Women') NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY unique_team (player1_id, player2_id),
@@ -337,7 +341,7 @@ const ensureDatabaseAndTables = async () => {
         status ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled') DEFAULT 'Scheduled',
         round_type ENUM('Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place') DEFAULT 'Qualifying',
         pool VARCHAR(5) NULL,
-        division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+        division ENUM('Men', 'Women') NOT NULL,
         winner_team_id INT NULL,
         score_team1 INT DEFAULT 0,
         score_team2 INT DEFAULT 0,
@@ -514,17 +518,7 @@ const insertSamplePlayers = async (safeExecute) => {
   return playersCreated;
 };
 
-const summarizePlayersByDivision = (players) => {
-  const expertMen = players.filter(
-    (p) => p.expertise_level === 'Expert' && (p.category === 'Men' || !p.category)
-  ).length;
-  const intermediateMen = players.filter(
-    (p) => p.expertise_level === 'Intermediate' && (p.category === 'Men' || !p.category)
-  ).length;
-  const women = players.filter((p) => p.category === 'Women').length;
-
-  return { expertMen, intermediateMen, women, total: players.length };
-};
+const summarizePlayersByDivision = (players) => countPlayersByDivision(players);
 
 // Seed demo players only. Teams and matches are created from the frontend workflow.
 export const seedPlayers = async (req, res, next) => {
@@ -577,9 +571,12 @@ export const seedPlayers = async (req, res, next) => {
     }
 
     const divisionCounts = summarizePlayersByDivision(players);
-    const expertTeamsPossible = Math.floor(divisionCounts.expertMen / 2);
-    const intermediateTeamsPossible = Math.floor(divisionCounts.intermediateMen / 2);
-    const womenTeamsPossible = Math.floor(divisionCounts.women / 2);
+    const possibleTeams = Object.fromEntries(
+      VALID_DIVISIONS.map((division) => [
+        division,
+        Math.floor((divisionCounts[division] || 0) / 2),
+      ])
+    );
 
     res.status(201).json({
       success: true,
@@ -589,11 +586,7 @@ export const seedPlayers = async (req, res, next) => {
       data: {
         playersCreated,
         divisionCounts,
-        possibleTeams: {
-          Expert: expertTeamsPossible,
-          Intermediate: intermediateTeamsPossible,
-          Women: womenTeamsPossible,
-        },
+        possibleTeams,
         workflow: [
           'Review and edit player details on the Players page',
           'Generate teams per division on the Teams page (even player counts required)',

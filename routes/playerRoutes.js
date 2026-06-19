@@ -20,7 +20,7 @@ const playerValidation = [
     .trim()
     .isEmail()
     .withMessage('Please enter a valid email address'),
-  body('expertise_level').isIn(['Intermediate', 'Expert']).withMessage('Expertise level must be Intermediate or Expert'),
+  body('expertise_level').isIn(['Beginner', 'Intermediate', 'Expert']).withMessage('Expertise level must be Beginner, Intermediate, or Expert'),
   body('category').optional().isIn(['Men', 'Women']).withMessage('Category must be Men or Women'),
 ];
 

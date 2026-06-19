@@ -10,7 +10,7 @@
 
 /** @typedef {'must_pair' | 'never_pair' | 'prefer_pair'} PairingRuleType */
 
-/** @typedef {'Expert' | 'Intermediate' | 'Women'} PairingDivision */
+/** @typedef {'Men' | 'Women'} PairingDivision */
 
 /**
  * @typedef {Object} DefaultPairingRuleDef
@@ -25,5 +25,5 @@
 /** @type {DefaultPairingRuleDef[]} */
 export const DEFAULT_TEAM_PAIRING_RULES = [
   // Add built-in doubles pairing rules here, e.g.:
-  // { playerEmail: 'a@example.com', relatedPlayerEmail: 'b@example.com', rule_type: 'never_pair', division: 'Expert' },
+  // { playerEmail: 'a@example.com', relatedPlayerEmail: 'b@example.com', rule_type: 'never_pair', division: 'Men' },
 ];

@@ -1,5 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
+import { VALID_DIVISIONS } from '@shared/tournament/competitionFormat.js';
 import {
   getAllPairingRules,
   getBuiltInPairingRules,
@@ -19,8 +20,8 @@ const createRuleValidation = [
     .isIn(['must_pair', 'never_pair', 'prefer_pair'])
     .withMessage('rule_type must be must_pair, never_pair, or prefer_pair'),
   body('division')
-    .isIn(['Expert', 'Intermediate', 'Women'])
-    .withMessage('division must be Expert, Intermediate, or Women'),
+    .isIn(VALID_DIVISIONS)
+    .withMessage(`division must be one of: ${VALID_DIVISIONS.join(', ')}`),
   body('priority').optional().isInt({ min: 0, max: 100 }).withMessage('priority must be 0–100'),
 ];
 

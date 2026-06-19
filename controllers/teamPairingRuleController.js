@@ -4,7 +4,9 @@ import {
   normalizePlayerIds,
   resolvePlayerDivision,
 } from '@shared/tournament/teamPairing.js';
-import { isSinglesFormat, VALID_DIVISIONS } from '@shared/tournament/competitionFormat.js';
+import { rejectInvalidDivision } from '../utils/divisionParam.js';
+import { resolveDivisionParam } from '@shared/tournament/divisions.js';
+import { isSinglesFormat } from '@shared/tournament/competitionFormat.js';
 import { getCompetitionFormat } from '../services/divisionSettingsService.js';
 import { getMergedPairingRules } from '../services/pairingRuleService.js';
 
@@ -45,11 +47,10 @@ export const getAllPairingRules = async (req, res, next) => {
     const params = [];
 
     if (division) {
-      if (!VALID_DIVISIONS.includes(division)) {
-        return res.status(400).json({ success: false, message: 'Invalid division' });
-      }
+      const resolved = rejectInvalidDivision(res, division);
+      if (resolved === undefined) return;
       query += ' WHERE r.division = ?';
-      params.push(division);
+      params.push(resolved);
     }
 
     query += ' ORDER BY r.division, r.rule_type, p1.name, p2.name';
@@ -94,11 +95,12 @@ export const createPairingRule = async (req, res, next) => {
       priority = 0,
     } = req.body;
 
-    if (!VALID_DIVISIONS.includes(division)) {
+    const resolvedDivision = resolveDivisionParam(division);
+    if (!resolvedDivision) {
       return res.status(400).json({ success: false, message: 'Invalid division' });
     }
 
-    await assertDoublesDivision(division);
+    await assertDoublesDivision(resolvedDivision);
 
     if (!RULE_TYPES.includes(rule_type)) {
       return res.status(400).json({
@@ -147,10 +149,10 @@ export const createPairingRule = async (req, res, next) => {
     const playerDivision = resolvePlayerDivision(player);
     const relatedDivision = resolvePlayerDivision(relatedPlayer);
 
-    if (playerDivision !== division || relatedDivision !== division) {
+    if (playerDivision !== resolvedDivision || relatedDivision !== resolvedDivision) {
       return res.status(400).json({
         success: false,
-        message: `Both players must belong to the ${division} division`,
+        message: `Both players must belong to the ${resolvedDivision} division`,
       });
     }
 
@@ -159,7 +161,7 @@ export const createPairingRule = async (req, res, next) => {
     const [existing] = await pool.execute(
       `SELECT id FROM team_pairing_rules
        WHERE player_id = ? AND related_player_id = ? AND rule_type = ? AND division = ?`,
-      [normalizedPlayerId, normalizedRelatedId, rule_type, division]
+      [normalizedPlayerId, normalizedRelatedId, rule_type, resolvedDivision]
     );
 
     if (existing.length > 0) {
@@ -179,7 +181,7 @@ export const createPairingRule = async (req, res, next) => {
     const [result] = await pool.execute(
       `INSERT INTO team_pairing_rules (player_id, related_player_id, rule_type, division, priority)
        VALUES (?, ?, ?, ?, ?)`,
-      [normalizedPlayerId, normalizedRelatedId, rule_type, division, resolvedPriority]
+      [normalizedPlayerId, normalizedRelatedId, rule_type, resolvedDivision, resolvedPriority]
     );
 
     res.status(201).json({

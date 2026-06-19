@@ -5,13 +5,13 @@
 CREATE DATABASE IF NOT EXISTS table_tennis_tournament;
 USE table_tennis_tournament;
 
--- Players
+-- Players: gender division (Men/Women) + expertise (Beginner/Intermediate/Expert)
 CREATE TABLE IF NOT EXISTS players (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(200) NOT NULL,
     email VARCHAR(200) UNIQUE NULL,
-    expertise_level ENUM('Intermediate', 'Expert') NOT NULL,
-    category ENUM('Men', 'Women') DEFAULT 'Men',
+    expertise_level ENUM('Beginner', 'Intermediate', 'Expert') NOT NULL DEFAULT 'Beginner',
+    category ENUM('Men', 'Women') NOT NULL DEFAULT 'Men',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -20,25 +20,24 @@ CREATE TABLE IF NOT EXISTS players (
     INDEX idx_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Per-division settings (competition format: singles or doubles)
+-- Per gender-division settings (Men / Women)
 CREATE TABLE IF NOT EXISTS division_settings (
-    division ENUM('Expert', 'Intermediate', 'Women') PRIMARY KEY,
+    division ENUM('Men', 'Women') PRIMARY KEY,
     competition_format ENUM('doubles', 'singles') NOT NULL DEFAULT 'doubles',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO division_settings (division, competition_format) VALUES
-    ('Expert', 'doubles'),
-    ('Intermediate', 'doubles'),
+    ('Men', 'doubles'),
     ('Women', 'doubles');
 
--- Teams (division-aware: Expert, Intermediate, Women; player2_id NULL for singles)
+-- Teams (gender division; player2_id NULL for singles)
 CREATE TABLE IF NOT EXISTS teams (
     id INT PRIMARY KEY AUTO_INCREMENT,
     team_name VARCHAR(150) NOT NULL COMMENT 'Short display name only; division is in division column',
     player1_id INT NOT NULL,
-    player2_id INT NULL COMMENT 'NULL for singles divisions (one player per team)',
-    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    player2_id INT NULL COMMENT 'NULL for singles (one player per team)',
+    division ENUM('Men', 'Women') NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_doubles_team (player1_id, player2_id),
@@ -60,7 +59,7 @@ CREATE TABLE IF NOT EXISTS matches (
     status ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled') DEFAULT 'Scheduled',
     round_type ENUM('Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place') DEFAULT 'Qualifying',
     pool VARCHAR(15) NULL COMMENT 'Group id for qualifying (A-Z). NULL for knockout rounds.',
-    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Men', 'Women') NOT NULL,
     winner_team_id INT NULL,
     score_team1 INT DEFAULT 0,
     score_team2 INT DEFAULT 0,
@@ -102,13 +101,13 @@ CREATE TABLE IF NOT EXISTS statistics (
     FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Doubles team pairing rules (ignored for singles divisions)
+-- Doubles team pairing rules (ignored for singles tracks)
 CREATE TABLE IF NOT EXISTS team_pairing_rules (
     id INT PRIMARY KEY AUTO_INCREMENT,
     player_id INT NOT NULL,
     related_player_id INT NOT NULL,
     rule_type ENUM('must_pair', 'never_pair', 'prefer_pair') NOT NULL,
-    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Men', 'Women') NOT NULL,
     priority INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -122,10 +121,10 @@ CREATE TABLE IF NOT EXISTS team_pairing_rules (
     CHECK (player_id < related_player_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Tournament archives (completed division snapshots for historical viewing)
+-- Tournament archives (completed track snapshots for historical viewing)
 CREATE TABLE IF NOT EXISTS tournament_archives (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+    division ENUM('Men', 'Women') NOT NULL,
     name VARCHAR(200) NOT NULL,
     completed_at DATETIME NOT NULL,
     archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

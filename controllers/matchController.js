@@ -24,7 +24,7 @@ import {
   createMatchSlotCursor,
 } from '@shared/tournament/scheduling.js';
 import { tryAutoProgressKnockout, ensureThirdPlaceMatch } from '../services/matchProgressionService.js';
-import { getGroupsFromMatches, detectFormat, countPlayersForDivision } from '../services/tournamentService.js';
+import { rejectInvalidDivision, requireDivision } from '../utils/divisionParam.js';
 
 const parseTimeSlotConfigFromBody = (body = {}) => {
   const { timeSlotConfig } = body;
@@ -46,9 +46,12 @@ const parseCourtConfigFromBody = (body = {}) => {
 export const getAllMatches = async (req, res, next) => {
   try {
     const { division } = req.query;
-    if (division) {
+    const resolvedDivision = division ? rejectInvalidDivision(res, division) : null;
+    if (division && resolvedDivision === undefined) return;
+
+    if (resolvedDivision) {
       try {
-        await ensureThirdPlaceMatch(pool, division);
+        await ensureThirdPlaceMatch(pool, resolvedDivision);
       } catch (healError) {
         console.error('Third place auto-heal skipped:', healError.message);
       }
@@ -56,9 +59,9 @@ export const getAllMatches = async (req, res, next) => {
 
     let whereClause = '';
     const params = [];
-    if (division) {
+    if (resolvedDivision) {
       whereClause = 'WHERE m.division = ?';
-      params.push(division);
+      params.push(resolvedDivision);
     }
     const [rows] = await pool.execute(`
       SELECT 
@@ -909,7 +912,7 @@ export const generateFinal = async (req, res, next) => {
 // Generate group-stage match schedule (4 groups of 3 by default, or legacy 2-pool)
 export const generateMatchSchedule = async (req, res, next) => {
   try {
-    const {
+    let {
       startDate,
       endDate,
       venue,
@@ -922,6 +925,9 @@ export const generateMatchSchedule = async (req, res, next) => {
     if (!division) {
       return res.status(400).json({ success: false, message: 'Division is required to generate schedule' });
     }
+    const resolvedDivision = rejectInvalidDivision(res, division);
+    if (resolvedDivision === undefined) return;
+    division = resolvedDivision;
     if (!startDate) {
       return res.status(400).json({ success: false, message: 'Start date is required' });
     }

@@ -14,6 +14,7 @@ import {
   buildConfigFromCounts,
   scheduleFixtures,
 } from '@shared/tournament/index.js';
+import { parseTournamentDivision } from '@shared/tournament/divisions.js';
 
 export {
   distributeIntoGroups,
@@ -63,19 +64,11 @@ export async function getGroupsFromMatches(db, division) {
  * @param {string} division
  */
 export async function countPlayersForDivision(db, division) {
-  let query = '';
-  if (division === 'Expert') {
-    query =
-      'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL)';
-  } else if (division === 'Intermediate') {
-    query =
-      'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL)';
-  } else if (division === 'Women') {
-    query = 'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND category = "Women"';
-  } else {
-    return 0;
-  }
-  const [[{ count }]] = await db.query(query);
+  const { category } = parseTournamentDivision(division);
+  const [[{ count }]] = await db.query(
+    'SELECT COUNT(*) AS count FROM players WHERE is_active = TRUE AND category = ?',
+    [category]
+  );
   return Number(count);
 }
 

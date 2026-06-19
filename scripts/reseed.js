@@ -58,12 +58,15 @@ const run = async () => {
           const { playersCreated, divisionCounts, possibleTeams } = payload.data;
           if (playersCreated > 0) console.log(`   Players created: ${playersCreated}`);
           if (divisionCounts) {
-            console.log(
-              `   Totals: ${divisionCounts.total} (Expert Men: ${divisionCounts.expertMen}, Intermediate: ${divisionCounts.intermediateMen}, Women: ${divisionCounts.women})`
-            );
+            const total = Object.values(divisionCounts).reduce((sum, n) => sum + (Number(n) || 0), 0);
+            const summary = Object.entries(divisionCounts)
+              .filter(([, n]) => n > 0)
+              .map(([track, n]) => `${track}: ${n}`)
+              .join(', ');
+            console.log(`   Totals: ${total}${summary ? ` (${summary})` : ''}`);
           }
-          if (possibleTeams?.Expert) {
-            console.log(`   Possible Expert teams: ${possibleTeams.Expert}`);
+          if (possibleTeams?.Men) {
+            console.log(`   Possible Men teams: ${possibleTeams.Men}`);
           }
         }
         process.exit(0);

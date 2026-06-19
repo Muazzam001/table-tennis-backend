@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import 'dotenv/config';
+import { ensureDivisionSchema } from '../services/divisionSchemaMigrationService.js';
 
 // Validate required environment variables (check raw env vars before parsing)
 // DB_PORT is optional - defaults to MySQL default port 3306
@@ -101,11 +102,23 @@ if (typeof pool.execute !== 'function') {
 
 // Test connection
 pool.getConnection()
-  .then(connection => {
+  .then(async (connection) => {
     console.log('✓ Database connected successfully');
     console.log(`  Host: ${dbHost}:${dbPort}${dbPortStr ? '' : ' (default - DB_PORT not set)'}`);
     console.log(`  Database: ${dbName}`);
     connection.release();
+
+    try {
+      const { applied, changes } = await ensureDivisionSchema(pool);
+      if (applied) {
+        console.log('✓ Upgraded legacy league schema to division:');
+        for (const change of changes) {
+          console.log(`    ${change}`);
+        }
+      }
+    } catch (schemaError) {
+      console.warn('⚠ Division schema upgrade skipped:', schemaError.message);
+    }
   })
   .catch(err => {
     const friendlyMessage = getConnectionErrorMessage(err);

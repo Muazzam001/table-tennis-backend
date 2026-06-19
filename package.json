@@ -15,6 +15,7 @@
     "create-admin": "node --import ./register-aliases.js scripts/createAdmin.js",
     "premigrate": "npm run sync:shared",
     "migrate": "node --import ./register-aliases.js scripts/migrate.js",
+    "ensure-division-schema": "node --import ./register-aliases.js scripts/ensure-division-schema.mjs",
     "seed": "node --import ./register-aliases.js scripts/reseed.js",
     "reseed": "node --import ./register-aliases.js scripts/reseed.js"
   },

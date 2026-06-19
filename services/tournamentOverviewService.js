@@ -15,6 +15,7 @@ import {
   resolveQualifiersPerGroup,
 } from '@shared/tournament/constants.js';
 import { ensureThirdPlaceMatch } from './matchProgressionService.js';
+import { resolveDivisionParam } from '@shared/tournament/divisions.js';
 
 /**
  * Build the full tournament overview payload for a division (live data).
@@ -23,6 +24,7 @@ import { ensureThirdPlaceMatch } from './matchProgressionService.js';
  * @param {{ healThirdPlace?: boolean }} [options]
  */
 export async function buildDivisionOverview(db, division, { healThirdPlace = true } = {}) {
+  division = resolveDivisionParam(division) || division;
   if (healThirdPlace) {
     try {
       await ensureThirdPlaceMatch(db, division);

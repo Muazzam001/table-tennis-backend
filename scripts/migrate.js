@@ -11,6 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
 import 'dotenv/config';
+import { ensureDivisionSchema } from '../services/divisionSchemaMigrationService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = path.resolve(__dirname, '../database/migrations');
@@ -223,6 +224,13 @@ async function run() {
     const pending = plan.filter((item) => !item.applied);
     if (pending.length === 0) {
       console.log('✅ Database is up to date. No pending migrations.');
+      const { applied, changes } = await ensureDivisionSchema(connection);
+      if (applied) {
+        console.log('\nDivision schema upgrades:');
+        for (const change of changes) {
+          console.log(`  ✓ ${change}`);
+        }
+      }
       process.exit(0);
     }
 
@@ -235,6 +243,16 @@ async function run() {
     }
 
     console.log('\n✅ All pending migrations applied successfully.\n');
+
+    const { applied, changes } = await ensureDivisionSchema(connection);
+    if (applied) {
+      console.log('Division schema upgrades:');
+      for (const change of changes) {
+        console.log(`  ✓ ${change}`);
+      }
+      console.log('');
+    }
+
     process.exit(0);
   } catch (error) {
     console.error('\n❌ Migration failed:', error.message);

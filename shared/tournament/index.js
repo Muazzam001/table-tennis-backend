@@ -1,4 +1,6 @@
 export * from './constants.js';
+export * from './divisions.js';
+export * from './competitionFormat.js';
 export * from './groupGeneration.js';
 export * from './matchGeneration.js';
 export * from './standings.js';

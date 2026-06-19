@@ -38,13 +38,15 @@ export function normalizePlayerIds(id1, id2) {
   return id1 < id2 ? [id1, id2] : [id2, id1];
 }
 
+import {
+  resolveTournamentDivisionFromPlayer,
+} from './divisions.js';
+
 /**
  * @param {{ category?: string, expertise_level?: string }} player
- * @returns {'Expert' | 'Intermediate' | 'Women'}
  */
 export function resolvePlayerDivision(player) {
-  if (player.category === 'Women') return 'Women';
-  return player.expertise_level === 'Expert' ? 'Expert' : 'Intermediate';
+  return resolveTournamentDivisionFromPlayer(player);
 }
 
 /**

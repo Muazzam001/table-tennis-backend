@@ -4,7 +4,7 @@ import {
   getCompetitionFormat,
   setCompetitionFormat,
 } from '../services/divisionSettingsService.js';
-import { VALID_DIVISIONS } from '@shared/tournament/competitionFormat.js';
+import { rejectInvalidDivision } from '../utils/divisionParam.js';
 
 export const listDivisionSettings = async (req, res, next) => {
   try {
@@ -17,11 +17,9 @@ export const listDivisionSettings = async (req, res, next) => {
 
 export const getDivisionSetting = async (req, res, next) => {
   try {
-    const { division } = req.params;
-    if (!VALID_DIVISIONS.includes(division)) {
-      return res.status(400).json({ success: false, message: 'Invalid division' });
-    }
-
+    const { division: rawDivision } = req.params;
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
     const competitionFormat = await getCompetitionFormat(pool, division);
     res.json({
       success: true,
@@ -34,12 +32,10 @@ export const getDivisionSetting = async (req, res, next) => {
 
 export const updateDivisionSetting = async (req, res, next) => {
   try {
-    const { division } = req.params;
+    const { division: rawDivision } = req.params;
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
     const { competition_format: competitionFormat } = req.body;
-
-    if (!VALID_DIVISIONS.includes(division)) {
-      return res.status(400).json({ success: false, message: 'Invalid division' });
-    }
 
     const updated = await setCompetitionFormat(pool, division, competitionFormat);
     res.json({

@@ -41,7 +41,7 @@ async function reanchorAutoIncrement(connection, tableName) {
     case 'players':
       await connection.query(
         `INSERT INTO players (id, name, email, expertise_level)
-         VALUES (1, '__reset__', CONCAT('__reset__', REPLACE(UUID(), '-', ''), '@local'), 'Expert')`
+         VALUES (1, '__reset__', CONCAT('__reset__', REPLACE(UUID(), '-', ''), '@local'), 'Beginner')`
       );
       await connection.query(`DELETE FROM players WHERE id = 1`);
       break;
@@ -54,7 +54,7 @@ async function reanchorAutoIncrement(connection, tableName) {
       }
       await connection.query(
         `INSERT INTO teams (id, team_name, player1_id, player2_id, division)
-         VALUES (1, '__reset__', ?, ?, 'Expert')`,
+         VALUES (1, '__reset__', ?, ?, 'Men')`,
         [playerRows[0].id, playerRows[1].id]
       );
       await connection.query(`DELETE FROM teams WHERE id = 1`);
@@ -69,7 +69,7 @@ async function reanchorAutoIncrement(connection, tableName) {
       }
       await connection.query(
         `INSERT INTO matches (id, team1_id, team2_id, scheduled_date, venue, division)
-         VALUES (1, ?, ?, NOW(), 'Reset', 'Expert')`,
+         VALUES (1, ?, ?, NOW(), 'Reset', 'Men')`,
         [teamRows[0].id, teamRows[1].id]
       );
       await connection.query(`DELETE FROM matches WHERE id = 1`);

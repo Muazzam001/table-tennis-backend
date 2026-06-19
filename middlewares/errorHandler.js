@@ -23,6 +23,16 @@ const sanitizeErrorMessage = (message) => {
 export const errorHandler = (err, req, res, next) => {
   console.error('Error:', err);
 
+  // Handle MySQL ENUM / data truncation (e.g. legacy division values)
+  if (err.code === 'WARN_DATA_TRUNCATED' || err.code === 'ER_WARN_DATA_TRUNCATED' || err.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: sanitizeErrorMessage('Invalid division or enum value. Use Men or Women.'),
+      },
+    });
+  }
+
   const statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
   

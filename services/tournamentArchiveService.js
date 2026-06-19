@@ -2,14 +2,15 @@ import {
   buildDivisionOverview,
   getDivisionTeamsWithPlayers,
 } from './tournamentOverviewService.js';
+import { resolveDivisionParam } from '@shared/tournament/divisions.js';
+import {
+  VALID_DIVISIONS,
+  getTournamentDivisionLabel,
+} from '@shared/tournament/competitionFormat.js';
 
-const VALID_DIVISIONS = ['Expert', 'Intermediate', 'Women'];
-
-const DIVISION_LABELS = {
-  Expert: 'Expert Division',
-  Intermediate: 'Intermediate Division',
-  Women: 'Women Division',
-};
+const DIVISION_LABELS = Object.fromEntries(
+  VALID_DIVISIONS.map((d) => [d, getTournamentDivisionLabel(d)])
+);
 
 /**
  * @param {import('mysql2/promise').Pool} db
@@ -18,7 +19,7 @@ export async function ensureTournamentArchivesTable(db) {
   await db.query(
     `CREATE TABLE IF NOT EXISTS tournament_archives (
       id INT PRIMARY KEY AUTO_INCREMENT,
-      division ENUM('Expert', 'Intermediate', 'Women') NOT NULL,
+      division ENUM('Men', 'Women') NOT NULL,
       name VARCHAR(200) NOT NULL,
       completed_at DATETIME NOT NULL,
       archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -72,6 +73,12 @@ function buildArchiveName(division, completedAt) {
  * @param {string} division
  */
 export async function archiveCompletedDivision(db, division) {
+  const normalized = resolveDivisionParam(division);
+  if (!normalized) {
+    throw Object.assign(new Error('Invalid division'), { statusCode: 400 });
+  }
+  division = normalized;
+
   if (!VALID_DIVISIONS.includes(division)) {
     throw Object.assign(new Error('Invalid division'), { statusCode: 400 });
   }
@@ -165,11 +172,12 @@ export async function listTournamentArchives(db, filters = {}) {
   const params = [];
   let where = '';
   if (filters.division) {
-    if (!VALID_DIVISIONS.includes(filters.division)) {
+    const normalized = resolveDivisionParam(filters.division);
+    if (!normalized) {
       throw Object.assign(new Error('Invalid division'), { statusCode: 400 });
     }
     where = 'WHERE division = ?';
-    params.push(filters.division);
+    params.push(normalized);
   }
 
   const [rows] = await db.execute(

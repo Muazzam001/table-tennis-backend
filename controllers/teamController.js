@@ -4,7 +4,11 @@ import {
   canFormTeams,
   isSinglesFormat,
   VALID_DIVISIONS,
+  parseTournamentDivision,
+  resolveTournamentDivisionFromPlayer,
+  resolveDivisionParam,
 } from '@shared/tournament/competitionFormat.js';
+import { rejectInvalidDivision } from '../utils/divisionParam.js';
 import {
   getCompetitionFormat,
   TEAM_SELECT,
@@ -22,34 +26,15 @@ const shufflePlayers = (players) => {
 };
 
 const getPlayersForDivision = async (division) => {
-  if (division === 'Expert') {
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Expert" AND (category = "Men" OR category IS NULL)'
-    );
-    return rows;
-  }
-  if (division === 'Intermediate') {
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND expertise_level = "Intermediate" AND (category = "Men" OR category IS NULL)'
-    );
-    return rows;
-  }
-  if (division === 'Women') {
-    const [rows] = await pool.execute(
-      'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND category = "Women"'
-    );
-    return rows;
-  }
-  return [];
+  const { category } = parseTournamentDivision(division);
+  const [rows] = await pool.execute(
+    'SELECT id, name, email, expertise_level, category FROM players WHERE is_active = TRUE AND category = ?',
+    [category]
+  );
+  return rows;
 };
 
-const resolveDivisionFromPlayer = (player) => {
-  const category = player.category || 'Men';
-  if (category === 'Women') return 'Women';
-  if (player.expertise_level === 'Expert') return 'Expert';
-  if (player.expertise_level === 'Intermediate') return 'Intermediate';
-  return null;
-};
+const resolveDivisionFromPlayer = (player) => resolveTournamentDivisionFromPlayer(player);
 
 const validatePlayersForDivision = (player1, player2, division, competitionFormat) => {
   const player1Division = resolveDivisionFromPlayer(player1);
@@ -85,11 +70,10 @@ export const getAllTeams = async (req, res, next) => {
     let divisionFilter = '';
 
     if (division) {
-      if (!VALID_DIVISIONS.includes(division)) {
-        return res.status(400).json({ success: false, message: 'Invalid division' });
-      }
+      const resolved = rejectInvalidDivision(res, division);
+      if (resolved === undefined) return;
       divisionFilter = 'WHERE t.division = ?';
-      params.push(division);
+      params.push(resolved);
     }
 
     const [rows] = await pool.execute(
@@ -139,7 +123,8 @@ export const createTeam = async (req, res, next) => {
     }
 
     const player1 = player1Rows[0];
-    const division = requestedDivision || resolveDivisionFromPlayer(player1);
+    const division =
+      resolveDivisionParam(requestedDivision) || resolveDivisionFromPlayer(player1);
 
     if (!division || !VALID_DIVISIONS.includes(division)) {
       return res.status(400).json({
@@ -342,12 +327,10 @@ export const updateTeam = async (req, res, next) => {
 export const deleteTeamsByDivision = async (req, res, next) => {
   try {
     const { division } = req.params;
+    const resolved = rejectInvalidDivision(res, division);
+    if (resolved === undefined) return;
 
-    if (!VALID_DIVISIONS.includes(division)) {
-      return res.status(400).json({ success: false, message: 'Invalid division' });
-    }
-
-    const [result] = await pool.execute('DELETE FROM teams WHERE division = ?', [division]);
+    const [result] = await pool.execute('DELETE FROM teams WHERE division = ?', [resolved]);
 
     res.json({
       success: true,
@@ -380,12 +363,12 @@ export const deleteTeam = async (req, res, next) => {
 export const generateRandomTeams = async (req, res, next) => {
   try {
     const { division: requestedDivision } = req.body;
-
-    if (requestedDivision && !VALID_DIVISIONS.includes(requestedDivision)) {
+    const resolvedRequest = requestedDivision ? resolveDivisionParam(requestedDivision) : null;
+    if (requestedDivision && !resolvedRequest) {
       return res.status(400).json({ success: false, message: 'Invalid division' });
     }
 
-    const divisionsToCreate = requestedDivision ? [requestedDivision] : VALID_DIVISIONS;
+    const divisionsToCreate = resolvedRequest ? [resolvedRequest] : VALID_DIVISIONS;
 
     const allTeams = [];
     const skippedDivisions = [];

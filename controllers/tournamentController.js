@@ -12,11 +12,12 @@ import {
 } from '@shared/tournament/scheduling.js';
 import { getGroupsFromMatches } from '../services/tournamentService.js';
 import { buildDivisionOverview } from '../services/tournamentOverviewService.js';
+import { rejectInvalidDivision } from '../utils/divisionParam.js';
 
 export const getTournamentSetup = async (req, res, next) => {
   try {
     const {
-      division,
+      division: rawDivision,
       startDate,
       groupCount: groupCountParam,
       startTime,
@@ -24,9 +25,11 @@ export const getTournamentSetup = async (req, res, next) => {
       intervalMinutes,
       courtCount: courtCountParam,
     } = req.query;
-    if (!division) {
+    if (!rawDivision) {
       return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
 
     const [teams] = await pool.execute(
       'SELECT id FROM teams WHERE division = ? ORDER BY id',
@@ -88,10 +91,12 @@ export const getTournamentSetup = async (req, res, next) => {
 
 export const getDivisionGroups = async (req, res, next) => {
   try {
-    const { division } = req.query;
-    if (!division) {
+    const { division: rawDivision } = req.query;
+    if (!rawDivision) {
       return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
 
     const groups = await getGroupsFromMatches(pool, division);
     /** @type {Record<number, string>} */
@@ -119,10 +124,12 @@ export const getDivisionGroups = async (req, res, next) => {
 
 export const getTournamentOverview = async (req, res, next) => {
   try {
-    const { division } = req.query;
-    if (!division) {
+    const { division: rawDivision } = req.query;
+    if (!rawDivision) {
       return res.status(400).json({ success: false, message: 'Division query parameter is required' });
     }
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
 
     const data = await buildDivisionOverview(pool, division);
 

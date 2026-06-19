@@ -1,4 +1,22 @@
-export const VALID_DIVISIONS = ['Expert', 'Intermediate', 'Women'];
+export {
+  GENDERS,
+  CATEGORIES,
+  EXPERTISE_LEVELS,
+  TOURNAMENT_DIVISIONS,
+  VALID_DIVISIONS,
+  DEFAULT_TOURNAMENT_DIVISION,
+  buildTournamentDivision,
+  parseTournamentDivision,
+  resolveTournamentDivisionFromPlayer,
+  isValidTournamentDivision,
+  getTournamentDivisionLabel,
+  migrateLegacyDivisionValue,
+  filterPlayersForDivision,
+  buildDivisionMap,
+  countPlayersByDivision,
+  countPlayersByExpertise,
+  resolveDivisionParam,
+} from './divisions.js';
 
 export const COMPETITION_FORMATS = ['doubles', 'singles'];
 
@@ -32,7 +50,7 @@ export function isSinglesTeam(team) {
 }
 
 /**
- * Minimum eligible players required to start a division tournament.
+ * Minimum eligible players required to start a tournament track.
  * @param {string} format
  * @returns {number}
  */
