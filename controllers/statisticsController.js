@@ -1,4 +1,5 @@
 import pool from '../utils/database.js';
+import { isMissingTableError } from '../utils/dbErrors.js';
 
 // Get all statistics
 export const getAllStatistics = async (req, res, next) => {
@@ -83,7 +84,7 @@ const safeQuery = async (query, params = [], defaultValue = 0) => {
     return [{ count: defaultValue }];
   } catch (error) {
     // If table doesn't exist, return default value
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+    if (isMissingTableError(error)) {
       console.log('Table not found, returning default value');
       return [{ count: defaultValue }];
     }
@@ -148,7 +149,7 @@ export const getDashboardStats = async (req, res, next) => {
         GROUP BY expertise_level`
       );
     } catch (error) {
-      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      if (isMissingTableError(error)) {
         expertiseStats = [];
       } else {
         throw error;
@@ -166,7 +167,7 @@ export const getDashboardStats = async (req, res, next) => {
         GROUP BY round_type`
       );
     } catch (error) {
-      if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+      if (isMissingTableError(error)) {
         roundStats = [];
       } else {
         throw error;

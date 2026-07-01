@@ -1,4 +1,5 @@
 import pool from '../utils/database.js';
+import { isDuplicateKeyError, isMissingTableError } from '../utils/dbErrors.js';
 import {
   distributeIntoGroups,
   generateGroupStageMatches,
@@ -108,7 +109,7 @@ export const getAllMatches = async (req, res, next) => {
     res.json({ success: true, data: rows });
   } catch (error) {
     // Handle table not found errors gracefully
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+    if (isMissingTableError(error)) {
       return res.json({ success: true, data: [] });
     }
     next(error);
@@ -140,7 +141,7 @@ export const getMatchesByRound = async (req, res, next) => {
     res.json({ success: true, data: rows });
   } catch (error) {
     // Handle table not found errors gracefully
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+    if (isMissingTableError(error)) {
       return res.json({ success: true, data: [] });
     }
     next(error);
@@ -169,7 +170,7 @@ export const getMatchById = async (req, res, next) => {
     res.json({ success: true, data: rows[0] });
   } catch (error) {
     // Handle table not found errors gracefully
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+    if (isMissingTableError(error)) {
       return res.status(404).json({ success: false, message: 'Match not found' });
     }
     next(error);
@@ -254,7 +255,7 @@ export const createMatch = async (req, res, next) => {
     });
   } catch (error) {
     // Handle duplicate entry error from database
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateKeyError(error)) {
       return res.status(400).json({ 
         success: false, 
         message: 'A match with these exact details already exists' 

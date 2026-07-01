@@ -1,4 +1,5 @@
 import pool from '../utils/database.js';
+import { isDuplicateKeyError, isMissingTableError } from '../utils/dbErrors.js';
 import { buildDefaultTeamName, normalizeTeamName } from '@shared/tournament/teamNaming.js';
 import {
   canFormTeams,
@@ -83,7 +84,7 @@ export const getAllTeams = async (req, res, next) => {
     );
     res.json({ success: true, data: rows });
   } catch (error) {
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+    if (isMissingTableError(error)) {
       return res.json({ success: true, data: [] });
     }
     next(error);
@@ -207,7 +208,7 @@ export const createTeam = async (req, res, next) => {
       },
     });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateKeyError(error)) {
       return res.status(400).json({
         success: false,
         message: 'This player or team combination already exists in this division',
@@ -322,7 +323,7 @@ export const updateTeam = async (req, res, next) => {
 
     res.json({ success: true, message: 'Team updated successfully' });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateKeyError(error)) {
       return res.status(400).json({
         success: false,
         message: 'This player or team combination already exists in this division',
@@ -431,7 +432,7 @@ export const replaceTeamsForDivision = async (req, res, next) => {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ success: false, message: error.message });
     }
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateKeyError(error)) {
       return res.status(400).json({
         success: false,
         message: 'A player or team combination already exists in this division',
