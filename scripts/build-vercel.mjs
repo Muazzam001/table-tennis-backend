@@ -1,6 +1,6 @@
 /**
  * Bundle server.js for Vercel — resolves @shared imports at build time.
- * Output: api/index.mjs (Vercel serverless entry, created during deploy build).
+ * Output: .vercel/bundle.mjs (loaded by committed api/index.mjs).
  */
 import * as esbuild from 'esbuild';
 import fs from 'fs';
@@ -8,10 +8,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const apiDir = path.join(backendRoot, 'api');
-const outfile = path.join(apiDir, 'index.mjs');
+const outDir = path.join(backendRoot, '.vercel');
+const outfile = path.join(outDir, 'bundle.mjs');
 
-fs.mkdirSync(apiDir, { recursive: true });
+fs.mkdirSync(outDir, { recursive: true });
 
 await esbuild.build({
   entryPoints: [path.join(backendRoot, 'server.js')],
