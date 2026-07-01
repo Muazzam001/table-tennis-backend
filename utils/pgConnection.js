@@ -10,12 +10,13 @@ export function buildPoolerUrl() {
   const password = process.env.SUPABASE_DB_PASSWORD;
   const ref = process.env.SUPABASE_PROJECT_REF || DEFAULT_PROJECT_REF;
   const host = process.env.SUPABASE_POOLER_HOST || DEFAULT_POOLER_HOST;
-  const port = process.env.SUPABASE_POOLER_PORT || '5432';
+  const port = process.env.SUPABASE_POOLER_PORT || (process.env.VERCEL === '1' ? '6543' : '5432');
   const database = process.env.SUPABASE_DB_NAME || 'postgres';
 
   if (!password) return null;
 
-  return `postgresql://postgres.${ref}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
+  const base = `postgresql://postgres.${ref}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
+  return port === '6543' && !base.includes('pgbouncer=') ? `${base}?pgbouncer=true` : base;
 }
 
 /**

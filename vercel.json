@@ -3,7 +3,10 @@
   "builds": [
     {
       "src": "vercel-entry.mjs",
-      "use": "@vercel/node"
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["shared/**"]
+      }
     }
   ],
   "routes": [
@@ -13,7 +16,8 @@
     }
   ],
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "NODE_OPTIONS": "--import ./register-aliases.js"
   }
 }
 
