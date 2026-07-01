@@ -1,280 +1,175 @@
-# Vercel Deployment Guide
+# Backend — Vercel Deployment Guide
 
-This guide will walk you through deploying your Table Tennis Tournament Backend API to Vercel.
+Deploy the Express API (`backend/`) as a **separate Vercel project** from the frontend. The app uses **Supabase PostgreSQL** (not MySQL).
 
 ## Prerequisites
 
-1. **Vercel Account**: Sign up at [vercel.com](https://vercel.com) (free tier is sufficient)
-2. **Vercel CLI** (optional, but recommended): Install globally
-   ```bash
-   npm install -g vercel
-   ```
-3. **Git Repository**: Your code should be in a Git repository (GitHub, GitLab, or Bitbucket)
-4. **MySQL Database**: Your MySQL server should be accessible from the internet (not localhost)
+- [Vercel](https://vercel.com) account
+- Supabase project with schema applied (`npm run db:migrate` from repo root)
+- Git repository (monorepo root or standalone `backend/` repo)
 
-## Step 1: Prepare Your Code
+## Architecture
 
-The following files have been created/modified for Vercel deployment:
+```
+Frontend (Vercel)  ──►  Backend (Vercel serverless)  ──►  Supabase PostgreSQL
+     │                           │
+     └── VITE_API_BASE_URL       └── pg via transaction pooler (port 6543)
+```
 
-- ✅ `vercel.json` - Vercel configuration file (includes `NODE_OPTIONS` for `@shared` import aliases)
-- ✅ `server.js` - Modified to export Express app for serverless functions
-- ✅ `shared/` - Committed vendored tournament logic (`npm run sync:shared` refreshes from parent `../shared` when present)
+## Vercel environment variables (required)
 
-## Shared tournament code
+Your deployment at **https://table-tennis-backend.vercel.app** needs these in the Vercel dashboard (**Settings → Environment Variables**). Copy values from your local `backend/.env`:
 
-Imports use the `@shared/tournament/...` alias (same as the frontend). The backend resolves this via `register-aliases.js` — all `npm` scripts pass `node --import ./register-aliases.js`, and Vercel sets `NODE_OPTIONS=--import ./register-aliases.js`.
+| Variable | Notes |
+|----------|--------|
+| `SUPABASE_DB_PASSWORD` | From Supabase → Database settings |
+| `SUPABASE_PROJECT_REF` | `zhbyslleexcktjpcdjxq` |
+| `SUPABASE_POOLER_HOST` | `aws-1-ap-northeast-1.pooler.supabase.com` |
+| `DATABASE_URL_POOLER` | Recommended: transaction pooler URL on port **6543** with `?pgbouncer=true` |
+| `SUPABASE_URL` | `https://zhbyslleexcktjpcdjxq.supabase.co` |
+| `SUPABASE_SECRET_KEY` | Service role key (backend only) |
+| `JWT_SECRET` | Same as local |
+| `JWT_EXPIRES_IN` | `7d` |
+| `CORS_ORIGIN` | Your frontend URL when deployed (e.g. `https://your-frontend.vercel.app`) |
 
-Commit `backend/shared/` in your standalone backend repo. When you still have the canonical `../shared` folder locally, `npm run sync:shared` (also runs before `dev`, `start`, and `migrate`) copies updates into `backend/shared/`.
+After adding variables, **Redeploy** from the Vercel dashboard. A `500 FUNCTION_INVOCATION_FAILED` on `/api/health` usually means missing DB env vars or an outdated deploy before `vercel-entry.mjs` was added.
 
-## Step 2: Configure Environment Variables
+## Step 1: Create the Vercel project
 
-### Option A: Using Vercel Dashboard (Recommended for first deployment)
+1. **Add New Project** in the [Vercel dashboard](https://vercel.com/dashboard)
+2. Import your Git repository
+3. Configure:
 
-1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Create a new project or select your existing project
-3. Navigate to **Settings** → **Environment Variables**
-4. Add the following environment variables:
+| Setting | Value |
+|---------|--------|
+| **Root Directory** | `backend` |
+| **Framework Preset** | Other |
+| **Install Command** | `npm install` |
+| **Build Command** | `npm run build` |
+| **Output Directory** | *(leave empty)* |
+
+`vercel-entry.mjs` registers `@shared` import aliases, then loads `server.js`. `server.js` exports the Express app and skips `app.listen()` when `VERCEL=1`.
+
+## Step 2: Environment variables
+
+In **Settings → Environment Variables**, add these for **Production** (and Preview if needed):
 
 ```env
-# Database Configuration
-DB_HOST=your_mysql_host_address
-DB_PORT=3306
-DB_USER=your_mysql_username
-DB_PASS=your_mysql_password
-DB_NAME=your_database_name
+# CORS — exact frontend origin (no trailing slash)
+CORS_ORIGIN=https://your-frontend.vercel.app
 
-# Server Configuration
-PORT=3000
-NODE_ENV=production
+# Supabase PostgreSQL (transaction pooler — required for serverless)
+DATABASE_URL_POOLER=postgresql://postgres.[PROJECT_REF]:[PASSWORD]@[POOLER_HOST]:6543/postgres?pgbouncer=true
 
-# CORS Configuration (Update with your frontend URL)
-CORS_ORIGIN=https://your-frontend-domain.vercel.app
+# Or use discrete vars (pooler URL is built automatically):
+SUPABASE_DB_PASSWORD=your-db-password
+SUPABASE_PROJECT_REF=your-project-ref
+SUPABASE_POOLER_HOST=aws-1-ap-northeast-1.pooler.supabase.com
 
-# JWT Configuration
-JWT_SECRET=your_super_secret_jwt_key_change_this_in_production
+# Supabase API (backend only — never expose to frontend)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SECRET_KEY=your-service-role-key
+
+# JWT
+JWT_SECRET=generate-with-openssl-rand-base64-32
 JWT_EXPIRES_IN=7d
 
-# Admin User (for initial setup)
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change_this_password
+NODE_ENV=production
 ```
 
-**Important Notes:**
-- Replace `your_mysql_host_address` with your actual MySQL server hostname/IP
-- Replace `CORS_ORIGIN` with your frontend URL (or use `*` for testing, but restrict in production)
-- Generate a strong `JWT_SECRET` using: `openssl rand -base64 32`
-- Set environment variables for all environments (Production, Preview, Development)
+**Important**
 
-### Option B: Using Vercel CLI
+- Use the **transaction pooler** on port **6543** with `?pgbouncer=true` on Vercel. Session pooler (5432) can exhaust connections across serverless instances.
+- `CORS_ORIGIN` must match the deployed frontend URL exactly.
+- Redeploy after changing environment variables.
 
-Create a `.env.local` file (for local testing) and set environment variables via CLI:
+## Step 3: Database setup (run locally or CI — not on Vercel)
 
 ```bash
-vercel env add DB_HOST
-vercel env add DB_USER
-vercel env add DB_PASS
-vercel env add DB_NAME
-vercel env add CORS_ORIGIN
-vercel env add JWT_SECRET
-# ... add all other variables
+# From repo root — apply supabase/migrations/
+npm run db:migrate
+
+# Create admin user (once)
+cd backend && npm run create-admin
 ```
 
-## Step 3: Deploy to Vercel
+## Step 4: Deploy
 
-### Method 1: Deploy via Vercel Dashboard (Easiest)
+**Dashboard:** push to the connected branch, or click **Redeploy**.
 
-1. **Connect Your Repository:**
-   - Go to [Vercel Dashboard](https://vercel.com/dashboard)
-   - Click **Add New Project**
-   - Import your Git repository (GitHub/GitLab/Bitbucket)
-   - Select the repository containing your backend code
+**CLI:**
 
-2. **Configure Project:**
-   - **Framework Preset**: Other (or Node.js)
-   - **Root Directory**: `backend` (if your backend is in a subdirectory)
-   - **Build Command**: Leave empty (or `npm install`)
-   - **Output Directory**: Leave empty
-   - **Install Command**: `npm install`
-
-3. **Deploy:**
-   - Click **Deploy**
-   - Wait for deployment to complete
-   - Your API will be available at `https://your-project-name.vercel.app`
-
-### Method 2: Deploy via Vercel CLI
-
-1. **Navigate to backend directory:**
-   ```bash
-   cd backend
-   ```
-
-2. **Login to Vercel:**
-   ```bash
-   vercel login
-   ```
-
-3. **Deploy:**
-   ```bash
-   vercel
-   ```
-   
-   Follow the prompts:
-   - Link to existing project? **No** (for first deployment)
-   - Project name: Enter your project name
-   - Directory: `./` (current directory)
-   - Override settings? **No**
-
-4. **Deploy to Production:**
-   ```bash
-   vercel --prod
-   ```
-
-## Step 4: Verify Deployment
-
-1. **Check Health Endpoint:**
-   ```bash
-   curl https://your-project-name.vercel.app/api/health
-   ```
-   
-   Expected response:
-   ```json
-   {
-     "status": "OK",
-     "message": "Table Tennis Tournament API is running"
-   }
-   ```
-
-2. **Test Database Connection:**
-   - The database connection will be tested automatically when the server starts
-   - Check Vercel logs: **Deployments** → **Your Deployment** → **Functions** → **View Function Logs**
-
-## Step 5: Configure MySQL Server for Remote Access
-
-Since your MySQL is on a separate server, ensure:
-
-1. **MySQL Server Allows Remote Connections:**
-   - Edit MySQL configuration file (`my.cnf` or `my.ini`)
-   - Set `bind-address = 0.0.0.0` (or comment it out)
-   - Restart MySQL service
-
-2. **Create Remote User (if needed):**
-   ```sql
-   CREATE USER 'your_username'@'%' IDENTIFIED BY 'your_password';
-   GRANT ALL PRIVILEGES ON your_database.* TO 'your_username'@'%';
-   FLUSH PRIVILEGES;
-   ```
-
-3. **Firewall Configuration:**
-   - Allow inbound connections on MySQL port (default: 3306)
-   - Configure firewall rules on your MySQL server
-
-4. **Security Best Practices:**
-   - Use strong passwords
-   - Limit user privileges (don't use root)
-   - Consider using SSL/TLS for MySQL connections
-   - Whitelist Vercel IPs if possible (though Vercel uses dynamic IPs)
-
-## Step 6: Update Frontend Configuration
-
-Update your frontend to use the Vercel backend URL:
-
-```javascript
-// Example: Update API base URL
-const API_BASE_URL = 'https://your-project-name.vercel.app/api';
+```bash
+cd backend
+npx vercel          # preview
+npx vercel --prod   # production
 ```
+
+## Step 5: Verify
+
+Production URL: **https://table-tennis-backend.vercel.app**
+
+```bash
+curl https://table-tennis-backend.vercel.app/api/health
+```
+
+Expected:
+
+```json
+{ "status": "OK", "message": "Table Tennis Tournament API is running" }
+```
+
+Check **Deployments → Functions → Logs** if the health check fails (usually missing DB env vars).
+
+## Step 6: Connect the frontend
+
+Set on the **frontend** Vercel project:
+
+```env
+VITE_API_BASE_URL=https://your-backend.vercel.app/api
+```
+
+Redeploy the frontend after changing this. See `frontend/DEPLOYMENT.md`.
+
+## Shared code (`@shared` alias)
+
+`backend/shared/` must be present in the deployed repo. `npm run build` runs `sync:shared`, which copies from `../shared` when that folder exists. Commit `backend/shared/` if you deploy only the backend repository.
+
+`vercel-entry.mjs` loads the app with `@shared` aliases resolved — no `NODE_OPTIONS` required.
 
 ## Troubleshooting
 
-### Database Connection Errors
+### Database connection failed
 
-1. **Check Environment Variables:**
-   - Verify all database variables are set correctly in Vercel dashboard
-   - Ensure `DB_HOST` is the public IP/hostname, not `localhost`
+- Confirm `DATABASE_URL_POOLER` or `SUPABASE_DB_PASSWORD` + pooler host are set in Vercel
+- Use port **6543** (transaction mode), not 5432
+- Ensure migrations ran: `npm run db:migrate`
+- Check Supabase **Database → Connection pooling** settings in the dashboard
 
-2. **Check MySQL Server:**
-   - Verify MySQL is running and accessible
-   - Test connection from your local machine:
-     ```bash
-     mysql -h your_mysql_host -u your_username -p
-     ```
+### CORS errors
 
-3. **Check Vercel Logs:**
-   - Go to Vercel Dashboard → Your Project → Deployments → View Function Logs
-   - Look for database connection error messages
+- Set `CORS_ORIGIN` to the exact frontend URL (scheme + host, no path)
+- Redeploy backend after updating
 
-### CORS Errors
+### Function timeout
 
-1. **Update CORS_ORIGIN:**
-   - Set `CORS_ORIGIN` to your frontend URL in Vercel environment variables
-   - For multiple origins, you may need to update `server.js` CORS configuration
+Free tier: 10s per invocation. Optimize slow queries or upgrade to Pro (60s).
 
-2. **Check Frontend URL:**
-   - Ensure frontend is making requests to the correct Vercel URL
+### Build fails on `@shared` imports
 
-### Function Timeout
+- Run `npm run build` locally in `backend/` to reproduce
+- Ensure `backend/shared/tournament/` is committed
 
-Vercel free tier has a 10-second timeout for serverless functions. If your database queries are slow:
+## Security checklist
 
-1. Optimize database queries
-2. Add database indexes
-3. Consider upgrading to Vercel Pro (60-second timeout)
+- [ ] Strong `JWT_SECRET` (not the example value)
+- [ ] `SUPABASE_SECRET_KEY` only on backend — never in frontend env
+- [ ] `CORS_ORIGIN` restricted to your frontend domain
+- [ ] `.env` not committed (already in `.gitignore`)
+- [ ] Admin password changed after `create-admin`
 
-### Environment Variables Not Loading
+## Related docs
 
-1. **Redeploy after adding variables:**
-   - Environment variables require a new deployment to take effect
-   - Go to Deployments → Redeploy
-
-2. **Check variable names:**
-   - Ensure variable names match exactly (case-sensitive)
-
-## Vercel Configuration Details
-
-The `vercel.json` file configures:
-
-- **Builds**: Uses `@vercel/node` to build your Express app
-- **Routes**: Routes all requests to `server.js`
-- **Environment**: Sets `NODE_ENV=production`
-
-## Continuous Deployment
-
-Once connected to Git:
-
-- **Automatic Deployments**: Every push to main/master branch deploys to production
-- **Preview Deployments**: Every pull request gets a preview deployment URL
-- **Rollback**: Easy rollback to previous deployments from dashboard
-
-## Monitoring
-
-1. **Function Logs:**
-   - View real-time logs in Vercel Dashboard
-   - Monitor errors and performance
-
-2. **Analytics:**
-   - Enable Vercel Analytics for API usage metrics
-   - Monitor function invocations and response times
-
-## Security Checklist
-
-- [ ] Strong `JWT_SECRET` generated
-- [ ] Database credentials are secure
-- [ ] `CORS_ORIGIN` is restricted (not `*`)
-- [ ] MySQL user has minimal required privileges
-- [ ] MySQL server allows connections only from trusted sources
-- [ ] Environment variables are set in Vercel (not in code)
-- [ ] `.env` file is in `.gitignore` (already done)
-
-## Next Steps
-
-1. Test all API endpoints
-2. Set up monitoring and alerts
-3. Configure custom domain (optional)
-4. Set up CI/CD pipeline
-5. Enable Vercel Analytics
-
-## Support
-
-- [Vercel Documentation](https://vercel.com/docs)
-- [Vercel Community](https://github.com/vercel/vercel/discussions)
-- Check deployment logs in Vercel Dashboard for specific errors
-
+- [Frontend deployment](../frontend/DEPLOYMENT.md)
+- [Supabase schema migration](../docs/supabase-migration/DEPLOYMENT_GUIDE.md)
+- [Vercel Node.js docs](https://vercel.com/docs/functions/runtimes/node-js)
