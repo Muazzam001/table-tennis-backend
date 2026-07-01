@@ -1,3 +1,5 @@
+import { isDuplicateKeyError } from '../utils/dbErrors.js';
+
 // Helper function to sanitize error messages - remove database/table names
 const sanitizeErrorMessage = (message) => {
   if (!message) return 'An error occurred';
@@ -40,7 +42,7 @@ export const errorHandler = (err, req, res, next) => {
   }
 
   // Handle unique constraint violations
-  if (err.code === '23505') {
+  if (isDuplicateKeyError(err)) {
     return res.status(400).json({
       success: false,
       error: {

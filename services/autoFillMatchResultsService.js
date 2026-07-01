@@ -54,7 +54,7 @@ async function applyGeneratedResult(db, matchId, result) {
       result.game_point_format,
       result.winner_team_id,
       result.status,
-      result.is_abandoned ? 1 : 0,
+      Boolean(result.is_abandoned),
       result.abandoned_reason,
       matchId,
     ]

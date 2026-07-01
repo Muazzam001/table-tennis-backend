@@ -1,4 +1,5 @@
 import pool from '../utils/database.js';
+import { isMissingTableError } from '../utils/dbErrors.js';
 import { getEffectivePairingRules } from '@shared/tournament/teamPairing.js';
 
 async function loadDatabasePairingRules() {
@@ -9,7 +10,7 @@ async function loadDatabasePairingRules() {
     );
     return rows.map((row) => ({ ...row, source: 'database' }));
   } catch (error) {
-    if (error.code === 'ER_NO_SUCH_TABLE') {
+    if (isMissingTableError(error)) {
       return [];
     }
     throw error;

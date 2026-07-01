@@ -1,4 +1,5 @@
 import pool from '../utils/database.js';
+import { isDuplicateKeyError, isMissingTableError } from '../utils/dbErrors.js';
 
 // Get all active players from database
 export const getAllPlayers = async (req, res, next) => {
@@ -11,7 +12,7 @@ export const getAllPlayers = async (req, res, next) => {
     res.json({ success: true, data: rows });
   } catch (error) {
     // Handle table not found errors gracefully
-    if (error.code === 'ER_NO_SUCH_TABLE' || error.code === 'ER_BAD_DB_ERROR') {
+    if (isMissingTableError(error)) {
       return res.json({ success: true, data: [] });
     }
     // If error occurs, pass it to error handler middleware
@@ -75,7 +76,7 @@ export const createPlayer = async (req, res, next) => {
     });
   } catch (error) {
     // If email already exists, return specific error message
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateKeyError(error)) {
       return res.status(400).json({ 
         success: false, 
         message: 'Email already exists' 
