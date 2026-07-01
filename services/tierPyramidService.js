@@ -343,7 +343,7 @@ export async function getTierPyramidSetupForDivision(db, division, formatConfig 
   ]);
   const settings = await getDivisionSettings(db, division);
   const config = normalizeTierPyramidConfig(formatConfig ?? settings.format_config ?? {});
-  return getTierPyramidSetupOptions(teams[0].count, config);
+  return getTierPyramidSetupOptions(Number(teams[0].count), config);
 }
 
 export { getTierPyramidSetupOptions };
