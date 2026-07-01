@@ -20,12 +20,14 @@ export async function propagatePyramidTiersFromPlayers(db, division) {
 
   const [assigned] = await db.execute(
     `UPDATE teams t
-     INNER JOIN players p ON p.id = t.player1_id AND t.player2_id IS NULL
-     SET t.tier = p.pyramid_tier,
-         t.pyramid_stage = 'registered',
-         t.pyramid_status = 'active',
-         t.advancement_source = NULL
-     WHERE t.division = ?
+     SET tier = p.pyramid_tier,
+         pyramid_stage = 'registered',
+         pyramid_status = 'active',
+         advancement_source = NULL
+     FROM players p
+     WHERE p.id = t.player1_id
+       AND t.player2_id IS NULL
+       AND t.division = ?
        AND p.is_active = TRUE
        AND p.pyramid_tier IS NOT NULL`,
     [division]
@@ -33,12 +35,14 @@ export async function propagatePyramidTiersFromPlayers(db, division) {
 
   const [cleared] = await db.execute(
     `UPDATE teams t
-     INNER JOIN players p ON p.id = t.player1_id AND t.player2_id IS NULL
-     SET t.tier = NULL,
-         t.pyramid_stage = NULL,
-         t.pyramid_status = NULL,
-         t.advancement_source = NULL
-     WHERE t.division = ?
+     SET tier = NULL,
+         pyramid_stage = NULL,
+         pyramid_status = NULL,
+         advancement_source = NULL
+     FROM players p
+     WHERE p.id = t.player1_id
+       AND t.player2_id IS NULL
+       AND t.division = ?
        AND (p.pyramid_tier IS NULL OR NOT p.is_active)`,
     [division]
   );
@@ -144,9 +148,11 @@ export async function syncPyramidTeamsFromPlayers(db, division, options = {}) {
 
   await db.execute(
     `UPDATE teams t
-     INNER JOIN players p ON p.id = t.player1_id
-     SET t.team_name = p.name
-     WHERE t.division = ? AND t.player2_id IS NULL`,
+     SET team_name = p.name
+     FROM players p
+     WHERE p.id = t.player1_id
+       AND t.division = ?
+       AND t.player2_id IS NULL`,
     [division]
   );
 
