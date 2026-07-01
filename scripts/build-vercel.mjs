@@ -1,13 +1,17 @@
 /**
- * Bundle server.js for Vercel — resolves @shared imports at build time so no
- * custom ESM loader is needed at runtime (register/NODE_OPTIONS often fail on Vercel).
+ * Bundle server.js for Vercel — resolves @shared imports at build time.
+ * Output: api/index.mjs (Vercel serverless entry, created during deploy build).
  */
 import * as esbuild from 'esbuild';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outfile = path.join(backendRoot, 'dist', 'server.mjs');
+const apiDir = path.join(backendRoot, 'api');
+const outfile = path.join(apiDir, 'index.mjs');
+
+fs.mkdirSync(apiDir, { recursive: true });
 
 await esbuild.build({
   entryPoints: [path.join(backendRoot, 'server.js')],
