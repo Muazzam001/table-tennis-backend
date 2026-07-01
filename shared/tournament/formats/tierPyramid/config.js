@@ -105,9 +105,15 @@ export function validateTierPyramidConfig(partial, participantCount = null) {
     errors.push('Tier 2 and Tier 3 each require at least 1 player.');
   }
 
-  if (participantCount != null && totalTiers !== participantCount) {
+  const participantTotal =
+    participantCount == null || participantCount === '' ? null : Number(participantCount);
+  if (
+    participantTotal != null &&
+    Number.isFinite(participantTotal) &&
+    totalTiers !== participantTotal
+  ) {
     errors.push(
-      `Tier counts (${config.tier1Count}+${config.tier2Count}+${config.tier3Count}=${totalTiers}) must equal participant count (${participantCount}).`
+      `Tier counts (${config.tier1Count}+${config.tier2Count}+${config.tier3Count}=${totalTiers}) must equal participant count (${participantTotal}).`
     );
   }
 
@@ -255,19 +261,20 @@ export function validateTierPyramidSetup(participantCount, tierAssignments, part
  * @param {Partial<TierPyramidConfig>} [partial]
  */
 export function getTierPyramidSetupOptions(teamCount, partial = {}) {
+  const normalizedTeamCount = Number(teamCount);
   const config = normalizeTierPyramidConfig(partial);
-  const configErrors = validateTierPyramidConfig(config, teamCount);
+  const configErrors = validateTierPyramidConfig(config, normalizedTeamCount);
   const matchCounts = countTierPyramidMatches(config);
 
   const isDefaultSize =
-    teamCount ===
+    normalizedTeamCount ===
     DEFAULT_TIER_PYRAMID_CONFIG.tier1Count +
       DEFAULT_TIER_PYRAMID_CONFIG.tier2Count +
       DEFAULT_TIER_PYRAMID_CONFIG.tier3Count;
 
   return {
     format: 'tier-pyramid',
-    teamCount,
+    teamCount: normalizedTeamCount,
     config,
     isValid: configErrors.length === 0,
     isDefaultSize,
@@ -281,8 +288,9 @@ export function getTierPyramidSetupOptions(teamCount, partial = {}) {
     rejectionReason:
       configErrors.length > 0
         ? configErrors[0]
-        : !isDefaultSize && teamCount !== config.tier1Count + config.tier2Count + config.tier3Count
-          ? `Tier Pyramid with custom config expects ${config.tier1Count + config.tier2Count + config.tier3Count} teams (got ${teamCount}).`
+        : !isDefaultSize &&
+            normalizedTeamCount !== config.tier1Count + config.tier2Count + config.tier3Count
+          ? `Tier Pyramid with custom config expects ${config.tier1Count + config.tier2Count + config.tier3Count} teams (got ${normalizedTeamCount}).`
           : null,
   };
 }
