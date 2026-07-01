@@ -3,6 +3,7 @@
 /** @typedef {import('../../types.ts').Team} Team */
 
 import { calculateGroupStandings } from '../../standings.js';
+import { buildCrossoverRoundWithByes, buildFirstKnockoutRoundWithByes } from './bracket.js';
 
 /**
  * Rank entrants using cumulative wins across all completed tournament matches.
@@ -59,127 +60,137 @@ export function partitionLevel3Entrants(teams) {
 }
 
 /**
+ * @typedef {{
+ *   label: string,
+ *   team1_id: number,
+ *   team2_id: number,
+ *   team1: object,
+ *   team2: object,
+ *   round_type: string,
+ *   pyramid_stage: string,
+ *   stage_sequence: number,
+ *   pool: null,
+ * }} PyramidPairingFixture
+ */
+
+/**
+ * @typedef {{
+ *   fixtures: PyramidPairingFixture[],
+ *   byeEntrants: object[],
+ * }} PyramidKnockoutRoundPlan
+ */
+
+/**
+ * @param {object[]} rankedPool
+ * @param {Match[]} allMatches
+ * @param {string} roundType
+ */
+function rankPoolByAdvancementSource(rankedPool, allMatches, roundType) {
+  const ranked = rankEntrantsByCumulativeWins(rankedPool, allMatches);
+  if (ranked.length === rankedPool.length) return ranked;
+  return [...rankedPool].sort((a, b) => {
+    const rankA = Number.parseInt(a.advancement_source?.match(/(\d+)$/)?.[1] ?? '999', 10);
+    const rankB = Number.parseInt(b.advancement_source?.match(/(\d+)$/)?.[1] ?? '999', 10);
+    if (rankA !== rankB) return rankA - rankB;
+    return a.id - b.id;
+  });
+}
+
+/**
+ * Build crossover knockout fixtures between two pools (supports unequal sizes + byes).
+ * @param {Team[]} poolA
+ * @param {Team[]} poolB
+ * @param {Match[]} allMatches
+ * @param {{ stage: string, roundType: string, labelPrefix?: string, rankRoundType?: string }} options
+ * @returns {PyramidKnockoutRoundPlan}
+ */
+export function buildPyramidCrossoverRound(poolA, poolB, allMatches, options) {
+  const { stage, roundType, labelPrefix = 'KO-', rankRoundType = roundType } = options;
+  const rankedA = rankPoolByAdvancementSource(poolA, allMatches, rankRoundType);
+  const rankedB = rankPoolByAdvancementSource(poolB, allMatches, rankRoundType);
+  const { fixtures, byeEntrants } = buildCrossoverRoundWithByes(rankedA, rankedB);
+
+  return {
+    fixtures: fixtures.map((fixture, index) => ({
+      label: `${labelPrefix}${index + 1}`,
+      team1_id: fixture.team1.id,
+      team2_id: fixture.team2.id,
+      team1: fixture.team1,
+      team2: fixture.team2,
+      round_type: roundType,
+      pyramid_stage: stage,
+      stage_sequence: index,
+      pool: null,
+    })),
+    byeEntrants,
+  };
+}
+
+/**
  * Crossover pairings for Level 3: Level 2 winners vs S2 tier-1 qualifiers.
- * Uses legacy 2-pool crossover (A1 vs B4, A2 vs B3, A3 vs B2, A4 vs B1).
  * @param {Team[]} l2Winners
  * @param {Team[]} s2Top
  * @param {Match[]} allMatches
  * @param {{ stage: string, roundType: string, labelPrefix?: string }} options
+ * @returns {PyramidPairingFixture[]}
  */
 export function generateLevel3CrossoverPairings(l2Winners, s2Top, allMatches, options) {
-  const { stage, roundType, labelPrefix = 'L3-QF' } = options;
-  const poolSize = 4;
-
-  if (l2Winners.length !== poolSize || s2Top.length !== poolSize) {
-    throw new Error(
-      `Level 3 crossover requires ${poolSize} Level 2 winners and ${poolSize} S2 qualifiers ` +
-        `(got ${l2Winners.length} and ${s2Top.length})`
-    );
-  }
-
-  const l2Matches = allMatches.filter((m) => m.round_type === 'Level 2');
-  const rankedL2 = rankEntrantsByCumulativeWins(l2Winners, l2Matches);
-
-  const rankedS2Top = [...s2Top].sort((a, b) => {
-    const rankA = Number.parseInt(a.advancement_source?.match(/S2-top-(\d+)/)?.[1] ?? '999', 10);
-    const rankB = Number.parseInt(b.advancement_source?.match(/S2-top-(\d+)/)?.[1] ?? '999', 10);
-    if (rankA !== rankB) return rankA - rankB;
-    return a.id - b.id;
-  });
-
-  const crossoverSlots = [
-    [0, 3],
-    [1, 2],
-    [2, 1],
-    [3, 0],
-  ];
-
-  return crossoverSlots.map(([l2Idx, s2Idx], index) => ({
-    label: `${labelPrefix}${index + 1}`,
-    team1_id: rankedL2[l2Idx].id,
-    team2_id: rankedS2Top[s2Idx].id,
-    team1: rankedL2[l2Idx],
-    team2: rankedS2Top[s2Idx],
-    round_type: roundType,
-    pyramid_stage: stage,
-    stage_sequence: index,
-    pool: null,
-  }));
+  return buildPyramidCrossoverRound(l2Winners, s2Top, allMatches, {
+    ...options,
+    rankRoundType: 'Level 2',
+  }).fixtures;
 }
 
 /**
  * Crossover pairings for Level 2: S1 group winners vs S2 tier-1 drop-outs.
- * Uses legacy 2-pool crossover (A1 vs B4, A2 vs B3, A3 vs B2, A4 vs B1).
  * @param {Team[]} s1Winners
  * @param {Team[]} s2Drops
  * @param {Match[]} allMatches
  * @param {{ stage: string, roundType: string, labelPrefix?: string }} options
+ * @returns {PyramidPairingFixture[]}
  */
 export function generateLevel2CrossoverPairings(s1Winners, s2Drops, allMatches, options) {
-  const { stage, roundType, labelPrefix = 'L2-' } = options;
-  const poolSize = 4;
-
-  if (s1Winners.length !== poolSize || s2Drops.length !== poolSize) {
-    throw new Error(
-      `Level 2 crossover requires ${poolSize} S1 winners and ${poolSize} S2 drop-outs ` +
-        `(got ${s1Winners.length} and ${s2Drops.length})`
-    );
-  }
-
-  const s1Matches = allMatches.filter((m) => m.round_type === 'S1');
-  const rankedS1 = rankEntrantsByCumulativeWins(s1Winners, s1Matches);
-
-  const rankedS2 = [...s2Drops].sort((a, b) => {
-    const rankA = Number.parseInt(a.advancement_source?.match(/S2-drop-(\d+)/)?.[1] ?? '999', 10);
-    const rankB = Number.parseInt(b.advancement_source?.match(/S2-drop-(\d+)/)?.[1] ?? '999', 10);
-    if (rankA !== rankB) return rankA - rankB;
-    return a.id - b.id;
-  });
-
-  const crossoverSlots = [
-    [0, 3],
-    [1, 2],
-    [2, 1],
-    [3, 0],
-  ];
-
-  return crossoverSlots.map(([s1Idx, s2Idx], index) => ({
-    label: `${labelPrefix}${index + 1}`,
-    team1_id: rankedS1[s1Idx].id,
-    team2_id: rankedS2[s2Idx].id,
-    team1: rankedS1[s1Idx],
-    team2: rankedS2[s2Idx],
-    round_type: roundType,
-    pyramid_stage: stage,
-    stage_sequence: index,
-    pool: null,
-  }));
+  return buildPyramidCrossoverRound(s1Winners, s2Drops, allMatches, {
+    ...options,
+    rankRoundType: 'S1',
+  }).fixtures;
 }
 
 /**
- * Standard bracket pairings for 8 teams (seeds 1–8).
+ * Level 3 crossover with bye metadata for semi-final seeding.
+ * @param {Team[]} l2Winners
+ * @param {Team[]} s2Top
+ * @param {Match[]} allMatches
+ * @param {{ stage: string, roundType: string, labelPrefix?: string }} options
+ * @returns {PyramidKnockoutRoundPlan}
+ */
+export function buildLevel3CrossoverRound(l2Winners, s2Top, allMatches, options) {
+  return buildPyramidCrossoverRound(l2Winners, s2Top, allMatches, {
+    ...options,
+    rankRoundType: 'Level 2',
+  });
+}
+
+/**
+ * Standard bracket pairings for power-of-2 teams (seeds 1–n).
  * @param {StandingRow[]} seededStandings — sorted best to worst
  * @param {{ stage: string, roundType: string, labelPrefix?: string }} options
  */
 export function generateSeededBracketPairings(seededStandings, options) {
   const { stage, roundType, labelPrefix = stage } = options;
-  if (seededStandings.length !== 8) {
-    throw new Error(`Seeded bracket requires 8 teams (got ${seededStandings.length})`);
+  const n = seededStandings.length;
+  if (n < 2) {
+    throw new Error(`Seeded bracket requires at least 2 teams (got ${n})`);
   }
 
-  const slots = [
-    [0, 7],
-    [3, 4],
-    [1, 6],
-    [2, 5],
-  ];
+  const { fixtures } = buildFirstKnockoutRoundWithByes(seededStandings);
 
-  return slots.map(([a, b], index) => ({
+  return fixtures.map((fixture, index) => ({
     label: `${labelPrefix}${index + 1}`,
-    team1_id: seededStandings[a].id,
-    team2_id: seededStandings[b].id,
-    team1: seededStandings[a],
-    team2: seededStandings[b],
+    team1_id: fixture.team1.id,
+    team2_id: fixture.team2.id,
+    team1: fixture.team1,
+    team2: fixture.team2,
     round_type: roundType,
     pyramid_stage: stage,
     stage_sequence: index,

@@ -2,12 +2,16 @@ import {
   normalizeTierPyramidConfig,
   validateTierPyramidSetup,
   getTierPyramidSetupOptions,
+  getTierPyramidSetupFromRoster,
+  resolveTierPyramidConfigForAssignments,
+  countTiersFromAssignments,
   buildTierPyramidLevel1Fixtures,
 } from '@shared/tournament/formats/tierPyramid/index.js';
 import { scheduleFixtures, validateDateRangeForMatches } from '@shared/tournament/scheduling.js';
 import { scheduleRoundRobinGroups } from '@shared/tournament/roundRobinScheduling.js';
 import { ensureTierPyramidSchema } from './tierPyramidSchemaService.js';
 import { getDivisionSettings, setTournamentFormat } from './divisionSettingsService.js';
+import { sqlCount } from '../utils/sql.js';
 import {
   shouldAutoSyncPyramidTeams,
   ensurePyramidTiersSyncedFromPlayers,
@@ -30,14 +34,22 @@ async function loadTierAssignmentState(db, division) {
     [division]
   );
   const settings = await getDivisionSettings(db, division);
-  const config = normalizeTierPyramidConfig(settings.format_config ?? {});
+  const savedConfig = normalizeTierPyramidConfig(settings.format_config ?? {});
   const tierAssignments = teams
     .filter((t) => t.tier != null)
     .map((t) => ({ teamId: t.id, tier: t.tier }));
 
+  const resolved =
+    tierAssignments.length > 0
+      ? resolveTierPyramidConfigForAssignments(tierAssignments, savedConfig)
+      : { config: savedConfig, errors: [], isDerived: false, tierCounts: countTiersFromAssignments([]) };
+  const config = resolved.config ?? savedConfig;
+
   const errors =
     teams.length > 0 && tierAssignments.length === teams.length
-      ? validateTierPyramidSetup(teams.length, tierAssignments, config)
+      ? resolved.errors.length > 0
+        ? resolved.errors
+        : validateTierPyramidSetup(teams.length, tierAssignments, config)
       : teams.length > 0
         ? ['Not all teams have tier assignments.']
         : [];
@@ -47,8 +59,10 @@ async function loadTierAssignmentState(db, division) {
     teams,
     tierAssignments,
     config,
+    tierCounts: resolved.tierCounts ?? countTiersFromAssignments(tierAssignments),
     tournament_format: settings.tournament_format,
     isComplete: tierAssignments.length === teams.length && errors.length === 0,
+    isDerived: resolved.isDerived ?? false,
     errors,
   };
 }
@@ -89,8 +103,12 @@ export async function assignTiers(db, division, assignments, formatConfig = null
     return { teamId, tier: a.tier };
   });
 
-  const config = normalizeTierPyramidConfig(formatConfig ?? {});
-  const errors = validateTierPyramidSetup(teams.length, tierAssignments, config);
+  const resolved = resolveTierPyramidConfigForAssignments(tierAssignments, formatConfig ?? {});
+  if (!resolved.config) {
+    throw Object.assign(new Error(resolved.errors.join(' ')), { statusCode: 400 });
+  }
+  const effectiveConfig = resolved.config;
+  const errors = validateTierPyramidSetup(teams.length, tierAssignments, effectiveConfig);
   if (errors.length > 0) {
     throw Object.assign(new Error(errors.join(' ')), { statusCode: 400 });
   }
@@ -116,7 +134,7 @@ export async function assignTiers(db, division, assignments, formatConfig = null
       );
     }
 
-    await setTournamentFormat(connection, division, 'tier-pyramid', config);
+    await setTournamentFormat(connection, division, 'tier-pyramid', effectiveConfig);
 
     await connection.commit();
   } catch (error) {
@@ -163,7 +181,7 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
      WHERE division = ? AND round_type IN ('S1', 'S2')`,
     [division]
   );
-  const existingCount = existingRows[0].count;
+  const existingCount = sqlCount(existingRows);
 
   if (existingCount > 0 && !replaceExisting) {
     throw Object.assign(
@@ -338,12 +356,27 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
  */
 export async function getTierPyramidSetupForDivision(db, division, formatConfig = null) {
   await ensureTierPyramidSchema(db);
+  const tierState = await loadTierAssignmentState(db, division);
+  const settings = await getDivisionSettings(db, division);
+  const savedConfig = normalizeTierPyramidConfig(formatConfig ?? settings.format_config ?? {});
+
+  const tierCounts = { tier1: 0, tier2: 0, tier3: 0 };
+  for (const team of tierState.teams) {
+    const tier = team.tier ?? team.player_pyramid_tier;
+    if (tier === 1) tierCounts.tier1 += 1;
+    else if (tier === 2) tierCounts.tier2 += 1;
+    else if (tier === 3) tierCounts.tier3 += 1;
+  }
+
+  const hasTierCounts = tierCounts.tier1 + tierCounts.tier2 + tierCounts.tier3 > 0;
+  if (hasTierCounts) {
+    return getTierPyramidSetupFromRoster(tierCounts, savedConfig);
+  }
+
   const [teams] = await db.execute('SELECT COUNT(*) AS count FROM teams WHERE division = ?', [
     division,
   ]);
-  const settings = await getDivisionSettings(db, division);
-  const config = normalizeTierPyramidConfig(formatConfig ?? settings.format_config ?? {});
-  return getTierPyramidSetupOptions(Number(teams[0].count), config);
+  return getTierPyramidSetupOptions(sqlCount(teams), savedConfig);
 }
 
 export { getTierPyramidSetupOptions };

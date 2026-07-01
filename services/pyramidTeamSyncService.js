@@ -1,4 +1,4 @@
-import { getDefaultTierPyramidConfig, normalizeTierPyramidConfig } from '@shared/tournament/formats/tierPyramid/config.js';
+import { getDefaultTierPyramidConfig, normalizeTierPyramidConfig, deriveTierPyramidConfigFromAssignments } from '@shared/tournament/formats/tierPyramid/config.js';
 import { ensureTierPyramidSchema } from './tierPyramidSchemaService.js';
 import { setCompetitionFormat, setTournamentFormat, getDivisionSettings } from './divisionSettingsService.js';
 import { assignTiers } from './tierPyramidService.js';
@@ -129,37 +129,37 @@ export async function syncPyramidTeamsFromPlayers(db, division, options = {}) {
   }
 
   const settings = await getDivisionSettings(db, division);
-  const formatConfig = normalizeTierPyramidConfig(
-    formatConfigOverride ?? settings.format_config ?? getDefaultTierPyramidConfig()
-  );
 
   await db.execute('DELETE FROM teams WHERE division = ?', [division]);
-
-  /** @type {{ teamId: number, tier: number }[]} */
-  const assignments = [];
-
-  for (const row of pyramidPlayers) {
-    const [result] = await db.execute(
-      `INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, NULL, ?)`,
-      [row.name, row.id, division]
-    );
-    assignments.push({ teamId: result.insertId, tier: row.tier });
-  }
-
-  await db.execute(
-    `UPDATE teams t
-     SET team_name = p.name
-     FROM players p
-     WHERE p.id = t.player1_id
-       AND t.division = ?
-       AND t.player2_id IS NULL`,
-    [division]
-  );
 
   let tierState = null;
   let tierAssignError = null;
   try {
-    tierState = await assignTiers(db, division, assignments, formatConfig);
+    /** @type {{ teamId: number, tier: number }[]} */
+    const tierAssignments = [];
+    for (const row of pyramidPlayers) {
+      const [result] = await db.execute(
+        `INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, NULL, ?)`,
+        [row.name, row.id, division]
+      );
+      tierAssignments.push({ teamId: result.insertId, tier: row.tier });
+    }
+
+    await db.execute(
+      `UPDATE teams t
+       SET team_name = p.name
+       FROM players p
+       WHERE p.id = t.player1_id
+         AND t.division = ?
+         AND t.player2_id IS NULL`,
+      [division]
+    );
+
+    const derivedConfig = deriveTierPyramidConfigFromAssignments(tierAssignments);
+    const formatConfig = normalizeTierPyramidConfig(
+      formatConfigOverride ?? derivedConfig ?? settings.format_config ?? getDefaultTierPyramidConfig()
+    );
+    tierState = await assignTiers(db, division, tierAssignments, formatConfig);
   } catch (error) {
     tierAssignError = error.message;
   }
@@ -167,7 +167,7 @@ export async function syncPyramidTeamsFromPlayers(db, division, options = {}) {
   return {
     synced: true,
     division,
-    teamsCreated: assignments.length,
+    teamsCreated: pyramidPlayers.length,
     tiersAssigned: tierState?.isComplete ?? false,
     tierErrors: tierState?.errors ?? (tierAssignError ? [tierAssignError] : []),
     tierState,

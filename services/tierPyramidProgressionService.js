@@ -1,4 +1,4 @@
-import { normalizeTierPyramidConfig } from '@shared/tournament/formats/tierPyramid/config.js';
+import { normalizeTierPyramidConfig, PYRAMID_SEMIFINAL_TEAM_COUNT } from '@shared/tournament/formats/tierPyramid/config.js';
 import {
   isPyramidStageComplete,
   isLevel1Complete,
@@ -8,7 +8,7 @@ import {
   computeS2Advancement,
   computeBracketStageAdvancement,
   buildLevel2Fixtures,
-  buildLevel3QuarterFinalFixtures,
+  buildLevel3FirstRoundPlan,
   buildLevel3SemiFinalFixtures,
   buildFinalFixture,
   tryBuildThirdPlaceFixture,
@@ -248,29 +248,52 @@ export async function tryAutoProgressTierPyramid(db, division, triggeredByMatchI
     l3Entrants.length === expectedL3 &&
     isPyramidStageComplete(matches, 'Level 2')
   ) {
-    const fixtures = buildLevel3QuarterFinalFixtures(l3Entrants, matches);
-    const created = await insertPyramidMatches(db, fixtures, division);
-    for (const entrant of l3Entrants) {
-      await db.execute(
-        `UPDATE teams SET pyramid_status = 'active' WHERE id = ? AND division = ?`,
-        [entrant.id, division]
-      );
+    const { fixtures, byeEntrants } = buildLevel3FirstRoundPlan(l3Entrants, matches);
+    if (byeEntrants.length > 0) {
+      const byeUpdates = byeEntrants.map((entrant, index) => ({
+        teamId: entrant.id,
+        fromStage: 'L3',
+        toStage: 'L3',
+        fromStatus: 'active',
+        toStatus: 'advanced',
+        source: `L3-bye-${index + 1}`,
+      }));
+      await applyAdvancementUpdates(db, division, byeUpdates, 'auto', triggeredByMatchId);
+      teams = await getTeamsWithTier(db, division);
+      actions.push(`Level 3 byes applied (${byeEntrants.length})`);
     }
-    actions.push(`Level 3 quarter-finals generated (${created.length} matches)`);
-    matches = await getDivisionMatches(db, division);
+
+    if (fixtures.length > 0) {
+      const created = await insertPyramidMatches(db, fixtures, division);
+      for (const entrant of l3Entrants) {
+        await db.execute(
+          `UPDATE teams SET pyramid_status = 'active' WHERE id = ? AND division = ?`,
+          [entrant.id, division]
+        );
+      }
+      actions.push(`Level 3 quarter-finals generated (${created.length} matches)`);
+      matches = await getDivisionMatches(db, division);
+    } else if (byeEntrants.length > 0) {
+      actions.push('Level 3 first round is bye-only');
+    }
   }
 
   const l3Qf = getLevel3QuarterFinalMatches(matches).sort(
     (a, b) => (a.stage_sequence ?? 0) - (b.stage_sequence ?? 0)
   );
   const l3Sf = getPyramidSemiFinalMatches(matches);
+  const byeSfEntrants = teams.filter((t) => t.advancement_source?.startsWith('L3-bye'));
+  const qfComplete =
+    l3Qf.length === 0 || l3Qf.every((m) => m.status === 'Completed' && m.winner_team_id);
+  const qfWinnerCount = l3Qf.filter((m) => m.status === 'Completed' && m.winner_team_id).length;
+  const semifinalTeamCount = byeSfEntrants.length + qfWinnerCount;
 
   if (
-    l3Qf.length === 4 &&
-    l3Qf.every((m) => m.status === 'Completed' && m.winner_team_id) &&
-    l3Sf.length === 0
+    qfComplete &&
+    l3Sf.length === 0 &&
+    semifinalTeamCount === PYRAMID_SEMIFINAL_TEAM_COUNT
   ) {
-    const sfFixtures = buildLevel3SemiFinalFixtures(l3Qf);
+    const sfFixtures = buildLevel3SemiFinalFixtures(matches, byeSfEntrants);
     const created = await insertPyramidMatches(db, sfFixtures, division, matches);
     actions.push(`Semi-finals generated (${created.length} matches)`);
     matches = await getDivisionMatches(db, division);
@@ -278,7 +301,7 @@ export async function tryAutoProgressTierPyramid(db, division, triggeredByMatchI
 
   const refreshedSf = getPyramidSemiFinalMatches(matches);
   if (
-    refreshedSf.length >= 2 &&
+    refreshedSf.length === 2 &&
     refreshedSf.every((m) => m.status === 'Completed' && m.winner_team_id) &&
     !teams.some((t) => t.advancement_source === 'L3-SF')
   ) {

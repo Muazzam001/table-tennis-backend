@@ -4,6 +4,7 @@ import {
   detectFormat,
   countPlayersForDivision,
 } from './tournamentService.js';
+import { sqlCount } from '../utils/sql.js';
 import { buildKnockoutBracket, inferSingleGroupTeamCount } from '@shared/tournament/knockout.js';
 import {
   calculateGroupStandings,
@@ -136,7 +137,7 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
     'SELECT COUNT(*) as count FROM teams WHERE division = ?',
     [division]
   );
-  const setupOptions = getTournamentSetupOptions(teamRows[0].count, playerCount);
+  const setupOptions = getTournamentSetupOptions(sqlCount(teamRows), playerCount);
 
   return {
     division,
