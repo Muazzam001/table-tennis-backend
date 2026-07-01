@@ -32,7 +32,7 @@ Your deployment at **https://table-tennis-backend.vercel.app** needs these in th
 | `JWT_EXPIRES_IN` | `7d` |
 | `CORS_ORIGIN` | Your frontend URL when deployed (e.g. `https://your-frontend.vercel.app`) |
 
-After adding variables, **Redeploy** from the Vercel dashboard. A `500 FUNCTION_INVOCATION_FAILED` on `/api/health` usually means missing DB env vars or an outdated deploy before `vercel-entry.mjs` was added.
+After adding variables, **Redeploy** from the Vercel dashboard. A `500 FUNCTION_INVOCATION_FAILED` on `/api/health` usually means missing env vars or a failed build (`npm run build` must succeed and produce `dist/server.mjs`).
 
 ## Step 1: Create the Vercel project
 
@@ -48,7 +48,7 @@ After adding variables, **Redeploy** from the Vercel dashboard. A `500 FUNCTION_
 | **Build Command** | `npm run build` |
 | **Output Directory** | *(leave empty)* |
 
-`vercel-entry.mjs` registers `@shared` import aliases, then loads `server.js`. `server.js` exports the Express app and skips `app.listen()` when `VERCEL=1`.
+`vercel.json` routes all traffic to `dist/server.mjs`, which is produced by `npm run build` (esbuild bundles `server.js` and inlines `@shared` imports — no custom ESM loader at runtime). `server.js` exports the Express app and skips `app.listen()` when `VERCEL=1`.
 
 ## Step 2: Environment variables
 
@@ -135,7 +135,7 @@ Redeploy the frontend after changing this. See `frontend/DEPLOYMENT.md`.
 
 `backend/shared/` must be present in the deployed repo. `npm run build` runs `sync:shared`, which copies from `../shared` when that folder exists. Commit `backend/shared/` if you deploy only the backend repository.
 
-`vercel-entry.mjs` loads the app with `@shared` aliases resolved — no `NODE_OPTIONS` required.
+`npm run build` runs esbuild via `scripts/build-vercel.mjs`, which bundles `server.js` into `dist/server.mjs` with `@shared` resolved at build time. Commit `backend/shared/` if you deploy only the backend repository.
 
 ## Troubleshooting
 
@@ -159,6 +159,7 @@ Free tier: 10s per invocation. Optimize slow queries or upgrade to Pro (60s).
 
 - Run `npm run build` locally in `backend/` to reproduce
 - Ensure `backend/shared/tournament/` is committed
+- Build output must exist at `dist/server.mjs` before the function deploys
 
 ## Security checklist
 

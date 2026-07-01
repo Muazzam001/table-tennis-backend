@@ -2,22 +2,17 @@
   "version": 2,
   "builds": [
     {
-      "src": "vercel-entry.mjs",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["shared/**"]
-      }
+      "src": "dist/server.mjs",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "vercel-entry.mjs"
+      "dest": "dist/server.mjs"
     }
   ],
   "env": {
-    "NODE_ENV": "production",
-    "NODE_OPTIONS": "--import ./register-aliases.js"
+    "NODE_ENV": "production"
   }
 }
-
