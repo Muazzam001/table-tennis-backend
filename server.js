@@ -41,6 +41,15 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Table Tennis Tournament API is running' });
 });
 
+// Root — useful when visiting the backend URL directly
+app.get('/', (req, res) => {
+  res.json({
+    status: 'OK',
+    message: 'Table Tennis Tournament API',
+    health: '/api/health',
+  });
+});
+
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
