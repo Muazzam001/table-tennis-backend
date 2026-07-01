@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { getPgClientConfig, resolvePostgresUrl } from '../utils/pgConnection.js';
+import { isServerless } from '../utils/runtime.js';
 
 const { Pool } = pg;
 
@@ -101,7 +102,7 @@ function getPoolMaxSize() {
     if (!Number.isNaN(parsed) && parsed > 0) return parsed;
   }
   // One connection per serverless instance avoids exhausting Supabase pool limits
-  return process.env.VERCEL === '1' ? 1 : 10;
+  return isServerless ? 1 : 10;
 }
 
 export function createPgPool(connectionString) {

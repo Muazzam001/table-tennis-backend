@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { isServerless } from './runtime.js';
 
 const DEFAULT_PROJECT_REF = 'zhbyslleexcktjpcdjxq';
 const DEFAULT_POOLER_HOST = 'aws-1-ap-northeast-1.pooler.supabase.com';
@@ -10,7 +11,7 @@ export function buildPoolerUrl() {
   const password = process.env.SUPABASE_DB_PASSWORD;
   const ref = process.env.SUPABASE_PROJECT_REF || DEFAULT_PROJECT_REF;
   const host = process.env.SUPABASE_POOLER_HOST || DEFAULT_POOLER_HOST;
-  const port = process.env.SUPABASE_POOLER_PORT || (process.env.VERCEL === '1' ? '6543' : '5432');
+  const port = process.env.SUPABASE_POOLER_PORT || (isServerless ? '6543' : '5432');
   const database = process.env.SUPABASE_DB_NAME || 'postgres';
 
   if (!password) return null;

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { errorHandler } from './middlewares/errorHandler.js';
+import { isServerless } from './utils/runtime.js';
 import authRoutes from './routes/authRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
 import playerRoutes from './routes/playerRoutes.js';
@@ -56,10 +57,10 @@ app.use(errorHandler);
 // Export app for Vercel serverless functions
 export default app;
 
-// Start server only if not in Vercel environment
+// Start server only when running locally (never on Vercel serverless)
 let server;
 
-if (process.env.VERCEL !== '1') {
+if (!isServerless) {
   const port = PORT || 3000;
 
   server = app.listen(port, () => {
