@@ -1,13 +1,14 @@
 import 'dotenv/config';
 import { createPgPool, getPgConnectionErrorMessage } from './pgAdapter.js';
 import { resolvePostgresUrl } from './pgConnection.js';
+import { isServerless } from './runtime.js';
 
 const databaseUrl = resolvePostgresUrl();
 
 if (!databaseUrl) {
   console.error('Missing DATABASE_URL or SUPABASE_DB_PASSWORD.');
   console.error('Get credentials from Supabase Dashboard → Project Settings → Database.');
-  if (process.env.VERCEL !== '1') {
+  if (!isServerless) {
     process.exit(1);
   }
 }
