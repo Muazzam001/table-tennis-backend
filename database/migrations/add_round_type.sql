@@ -1,0 +1,2 @@
+-- DEPRECATED: Use database/migrations/001_add_round_type_and_pool.sql
+-- Or use database/schema.sql for new installations.

@@ -5,21 +5,37 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "dev": "node --watch server.js",
-    "start": "node server.js",
-    "create-admin": "node scripts/createAdmin.js",
-    "seed": "node scripts/reseed.js",
-    "reseed": "node scripts/reseed.js"
+    "sync:shared": "node scripts/sync-shared.mjs",
+    "predev": "npm run sync:shared",
+    "dev": "node --import ./register-aliases.js --watch server.js",
+    "prebuild": "npm run sync:shared",
+    "build": "node --import ./register-aliases.js scripts/verify-build.mjs",
+    "prestart": "npm run sync:shared",
+    "start": "node --import ./register-aliases.js server.js",
+    "create-admin": "node --import ./register-aliases.js scripts/createAdmin.js",
+    "premigrate": "npm run sync:shared",
+    "migrate": "node --import ./register-aliases.js scripts/migrate.js",
+    "db:migrate": "node --import ./register-aliases.js scripts/applySupabaseMigrations.js",
+    "db:migrate-data": "node --import ./register-aliases.js scripts/migrate-data/index.js",
+    "db:validate-data": "node --import ./register-aliases.js scripts/migrate-data/index.js -- --validate-only",
+    "ensure-division-schema": "node --import ./register-aliases.js scripts/ensure-division-schema.mjs",
+    "seed": "node --import ./register-aliases.js scripts/reseed.js",
+    "reseed": "node --import ./register-aliases.js scripts/reseed.js",
+    "seed:tier-pyramid": "node --import ./register-aliases.js scripts/seedTierPyramid.js",
+    "regenerate:pyramid-schedule": "node --import ./register-aliases.js scripts/regeneratePyramidSchedule.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
-    "dotenv": "^16.3.1",
-    "cors": "^2.8.5",
-    "express-validator": "^7.0.1",
+    "@supabase/supabase-js": "^2.110.0",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2"
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "mysql2": "^3.6.5",
+    "prisma": "^7.8.0"
   }
 }
-
-

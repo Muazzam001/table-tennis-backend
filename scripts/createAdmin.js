@@ -1,16 +1,14 @@
 // Script to create a default admin user
-// Usage: node backend/scripts/createAdmin.js
-// Or: npm run create-admin (if added to package.json)
+// Usage: npm run create-admin
 
 import bcrypt from 'bcryptjs';
 import pool from '../utils/database.js';
 import 'dotenv/config';
 
 const createAdmin = async () => {
-  let connection = null;
   try {
     const username = process.env.ADMIN_USERNAME || 'admin';
-    const email = process.env.ADMIN_EMAIL || 'muazzam.y@ebitlogix.com';
+    const email = process.env.ADMIN_EMAIL || 'admin@example.com';
     const password = process.env.ADMIN_PASSWORD || 'admin@1234';
     const role = 'admin';
 
@@ -18,46 +16,16 @@ const createAdmin = async () => {
     console.log(`Username: ${username}`);
     console.log(`Email: ${email}`);
 
-    // First, check if users table exists, if not create it
-    try {
-      const [tables] = await pool.execute(
-        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
-         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users'`,
-        [process.env.DB_NAME]
-      );
+    const [tables] = await pool.execute(
+      `SELECT table_name FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'users'`
+    );
 
-      if (tables.length === 0) {
-        console.log('⚠️  Users table not found. Creating users table...');
-        
-        // Get a connection to create the table
-        connection = await pool.getConnection();
-        
-        await connection.query(`
-          CREATE TABLE IF NOT EXISTS users (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            username VARCHAR(50) UNIQUE NOT NULL,
-            email VARCHAR(100) UNIQUE NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            role ENUM('admin', 'user') DEFAULT 'user',
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_username (username),
-            INDEX idx_email (email),
-            INDEX idx_role (role)
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-        `);
-        
-        console.log('✅ Users table created successfully!');
-        connection.release();
-        connection = null;
-      }
-    } catch (tableError) {
-      console.error('❌ Error checking/creating users table:', tableError.message);
-      throw tableError;
+    if (tables.length === 0) {
+      console.error('❌ Users table not found. Run: npm run db:migrate');
+      process.exit(1);
     }
 
-    // Check if admin already exists
     const [existing] = await pool.execute(
       'SELECT id FROM users WHERE username = ? OR email = ?',
       [username, email]
@@ -86,11 +54,8 @@ const createAdmin = async () => {
       return;
     }
 
-    // Hash password
-    const saltRounds = 10;
-    const password_hash = await bcrypt.hash(password, saltRounds);
+    const password_hash = await bcrypt.hash(password, 10);
 
-    // Insert admin user
     const [result] = await pool.execute(
       'INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)',
       [username, email, password_hash, role]
@@ -110,17 +75,11 @@ const createAdmin = async () => {
     if (error.code) {
       console.error(`   Error code: ${error.code}`);
     }
-    if (error.code === 'ER_NO_SUCH_TABLE') {
-      console.error('\n💡 Tip: Make sure all database tables exist.');
-      console.error('   You can recreate tables by calling the seed/setup endpoint or running schema.sql');
+    if (error.code === '42P01') {
+      console.error('\n💡 Run database migrations first: npm run db:migrate');
     }
     process.exit(1);
-  } finally {
-    if (connection) {
-      connection.release();
-    }
   }
 };
 
 createAdmin();
-

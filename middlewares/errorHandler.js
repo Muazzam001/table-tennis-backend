@@ -23,6 +23,32 @@ const sanitizeErrorMessage = (message) => {
 export const errorHandler = (err, req, res, next) => {
   console.error('Error:', err);
 
+  // Handle PostgreSQL enum / invalid value errors
+  if (
+    err.code === '22P02' ||
+    err.code === '23514' ||
+    err.code === 'WARN_DATA_TRUNCATED' ||
+    err.code === 'ER_WARN_DATA_TRUNCATED' ||
+    err.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD'
+  ) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: sanitizeErrorMessage('Invalid division or enum value. Use Men or Women.'),
+      },
+    });
+  }
+
+  // Handle unique constraint violations
+  if (err.code === '23505') {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: sanitizeErrorMessage('Duplicate entry. A record with this value already exists.'),
+      },
+    });
+  }
+
   const statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
   

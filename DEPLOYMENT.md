@@ -16,8 +16,15 @@ This guide will walk you through deploying your Table Tennis Tournament Backend 
 
 The following files have been created/modified for Vercel deployment:
 
-- ✅ `vercel.json` - Vercel configuration file
+- ✅ `vercel.json` - Vercel configuration file (includes `NODE_OPTIONS` for `@shared` import aliases)
 - ✅ `server.js` - Modified to export Express app for serverless functions
+- ✅ `shared/` - Committed vendored tournament logic (`npm run sync:shared` refreshes from parent `../shared` when present)
+
+## Shared tournament code
+
+Imports use the `@shared/tournament/...` alias (same as the frontend). The backend resolves this via `register-aliases.js` — all `npm` scripts pass `node --import ./register-aliases.js`, and Vercel sets `NODE_OPTIONS=--import ./register-aliases.js`.
+
+Commit `backend/shared/` in your standalone backend repo. When you still have the canonical `../shared` folder locally, `npm run sync:shared` (also runs before `dev`, `start`, and `migrate`) copies updates into `backend/shared/`.
 
 ## Step 2: Configure Environment Variables
 

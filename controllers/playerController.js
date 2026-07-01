@@ -47,19 +47,31 @@ export const getPlayerById = async (req, res, next) => {
 export const createPlayer = async (req, res, next) => {
   try {
     // Get player data from request body (sent from frontend)
-    const { name, email, expertise_level, category } = req.body;
+    const { name, email, expertise_level, category, pyramid_tier } = req.body;
+    const normalizedEmail = email?.trim() || null;
+    const normalizedPyramidTier =
+      pyramid_tier === null || pyramid_tier === '' || pyramid_tier === undefined
+        ? null
+        : Number(pyramid_tier);
     
     // Insert new player into database (category defaults to 'Men' if not provided)
     const [result] = await pool.execute(
-      'INSERT INTO players (name, email, expertise_level, category) VALUES (?, ?, ?, ?)',
-      [name, email, expertise_level, category || 'Men']
+      'INSERT INTO players (name, email, expertise_level, category, pyramid_tier) VALUES (?, ?, ?, ?, ?)',
+      [name, normalizedEmail, expertise_level, category || 'Men', normalizedPyramidTier]
     );
     
     // Return success response with created player info
     res.status(201).json({
       success: true,
       message: 'Player created successfully',
-      data: { id: result.insertId, name, email, expertise_level, category: category || 'Men' }
+      data: {
+        id: result.insertId,
+        name,
+        email: normalizedEmail,
+        expertise_level,
+        category: category || 'Men',
+        pyramid_tier: normalizedPyramidTier,
+      }
     });
   } catch (error) {
     // If email already exists, return specific error message
@@ -78,7 +90,7 @@ export const updatePlayer = async (req, res, next) => {
   try {
     // Get player ID from URL and update data from request body
     const { id } = req.params;
-    const { name, email, expertise_level, category, is_active } = req.body;
+    const { name, email, expertise_level, category, is_active, pyramid_tier } = req.body;
     
     // Build update query dynamically (only update fields that are provided)
     const updateFields = [];
@@ -90,7 +102,7 @@ export const updatePlayer = async (req, res, next) => {
     }
     if (email !== undefined) {
       updateFields.push('email = ?');
-      values.push(email);
+      values.push(email?.trim() || null);
     }
     if (expertise_level !== undefined) {
       updateFields.push('expertise_level = ?');
@@ -99,6 +111,12 @@ export const updatePlayer = async (req, res, next) => {
     if (category !== undefined) {
       updateFields.push('category = ?');
       values.push(category);
+    }
+    if (pyramid_tier !== undefined) {
+      updateFields.push('pyramid_tier = ?');
+      values.push(
+        pyramid_tier === null || pyramid_tier === '' ? null : Number(pyramid_tier)
+      );
     }
     if (is_active !== undefined) {
       updateFields.push('is_active = ?');

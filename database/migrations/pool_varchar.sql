@@ -1,0 +1,1 @@
+-- DEPRECATED: Use database/migrations/004_pool_varchar.sql

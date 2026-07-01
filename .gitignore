@@ -14,6 +14,9 @@ node_modules
 .env.local
 .env.*.local
 
+# Data migration exports (may contain production data)
+migration-export/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -26,3 +29,5 @@ node_modules
 *.sw?
 
 
+
+/generated/prisma

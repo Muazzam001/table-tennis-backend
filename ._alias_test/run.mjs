@@ -1,0 +1,2 @@
+try { const a = await import('@shared/tournament/foo.js'); console.log('@shared', a.x); } catch(e) { console.log('@shared FAIL', e.message); }
+try { const b = await import('#shared/tournament/foo.js'); console.log('#shared', b.x); } catch(e) { console.log('#shared FAIL', e.message); }

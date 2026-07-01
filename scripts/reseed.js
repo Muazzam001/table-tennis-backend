@@ -55,15 +55,18 @@ const run = async () => {
       if (payload.success) {
         console.log(`\n✅ ${payload.message}`);
         if (payload.data) {
-          const { playersCreated, leagueCounts, possibleTeams } = payload.data;
+          const { playersCreated, divisionCounts, possibleTeams } = payload.data;
           if (playersCreated > 0) console.log(`   Players created: ${playersCreated}`);
-          if (leagueCounts) {
-            console.log(
-              `   Totals: ${leagueCounts.total} (Expert Men: ${leagueCounts.expertMen}, Intermediate: ${leagueCounts.intermediateMen}, Women: ${leagueCounts.women})`
-            );
+          if (divisionCounts) {
+            const total = Object.values(divisionCounts).reduce((sum, n) => sum + (Number(n) || 0), 0);
+            const summary = Object.entries(divisionCounts)
+              .filter(([, n]) => n > 0)
+              .map(([track, n]) => `${track}: ${n}`)
+              .join(', ');
+            console.log(`   Totals: ${total}${summary ? ` (${summary})` : ''}`);
           }
-          if (possibleTeams?.Expert) {
-            console.log(`   Possible Expert teams: ${possibleTeams.Expert}`);
+          if (possibleTeams?.Men) {
+            console.log(`   Possible Men teams: ${possibleTeams.Men}`);
           }
         }
         process.exit(0);
