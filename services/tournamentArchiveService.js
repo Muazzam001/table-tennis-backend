@@ -13,25 +13,11 @@ const DIVISION_LABELS = Object.fromEntries(
 );
 
 /**
- * @param {import('mysql2/promise').Pool} db
+ * tournament_archives is created by Supabase migration 001_initial_schema.sql.
+ * @param {import('../utils/pgAdapter.js').createPgPool} _db
  */
-export async function ensureTournamentArchivesTable(db) {
-  await db.query(
-    `CREATE TABLE IF NOT EXISTS tournament_archives (
-      id INT PRIMARY KEY AUTO_INCREMENT,
-      division ENUM('Men', 'Women') NOT NULL,
-      name VARCHAR(200) NOT NULL,
-      completed_at DATETIME NOT NULL,
-      archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      champion_team_name VARCHAR(150) NULL,
-      runner_up_team_name VARCHAR(150) NULL,
-      participant_count INT DEFAULT 0,
-      snapshot_json JSON NOT NULL,
-      INDEX idx_division (division),
-      INDEX idx_completed_at (completed_at),
-      INDEX idx_archived_at (archived_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
-  );
+export async function ensureTournamentArchivesTable(_db) {
+  // no-op — schema managed by Supabase migrations
 }
 
 /**

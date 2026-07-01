@@ -40,19 +40,10 @@ export async function ensureDivisionSettingsTable(db) {
   await ensureTierPyramidSchema(db);
   await ensureMatchSchema(db);
 
-  await db.execute(`
-    CREATE TABLE IF NOT EXISTS division_settings (
-      division ENUM('Men', 'Women') PRIMARY KEY,
-      competition_format ENUM('doubles', 'singles') NOT NULL DEFAULT 'doubles',
-      tournament_format ENUM('groups', 'single-group', 'pools-2', 'tier-pyramid') NOT NULL DEFAULT 'groups',
-      format_config JSON NULL,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-
   for (const division of VALID_DIVISIONS) {
     await db.execute(
-      'INSERT IGNORE INTO division_settings (division, competition_format) VALUES (?, ?)',
+      `INSERT INTO division_settings (division, competition_format) VALUES (?, ?)
+       ON CONFLICT (division) DO NOTHING`,
       [division, DEFAULT_FORMAT]
     );
   }
@@ -120,9 +111,9 @@ export async function setTournamentFormat(db, division, tournamentFormat, format
   await db.execute(
     `INSERT INTO division_settings (division, competition_format, tournament_format, format_config)
      VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       tournament_format = VALUES(tournament_format),
-       format_config = VALUES(format_config)`,
+     ON CONFLICT (division) DO UPDATE SET
+       tournament_format = EXCLUDED.tournament_format,
+       format_config = EXCLUDED.format_config`,
     [
       division,
       current.competition_format,
@@ -139,10 +130,10 @@ export async function setTournamentFormat(db, division, tournamentFormat, format
  */
 export async function getAllDivisionSettings(db) {
   await ensureDivisionSettingsTable(db);
-  const order = VALID_DIVISIONS.map((d) => `"${d}"`).join(', ');
   const [rows] = await db.execute(
     `SELECT division, competition_format, tournament_format, format_config, updated_at
-     FROM division_settings ORDER BY FIELD(division, ${order})`
+     FROM division_settings
+     ORDER BY CASE division WHEN 'Men' THEN 1 WHEN 'Women' THEN 2 ELSE 3 END`
   );
   return rows.map((row) => {
     let formatConfig = row.format_config ?? null;
@@ -189,7 +180,7 @@ export async function setCompetitionFormat(db, division, competitionFormat) {
   await db.execute(
     `INSERT INTO division_settings (division, competition_format)
      VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE competition_format = VALUES(competition_format)`,
+     ON CONFLICT (division) DO UPDATE SET competition_format = EXCLUDED.competition_format`,
     [division, competitionFormat]
   );
 
