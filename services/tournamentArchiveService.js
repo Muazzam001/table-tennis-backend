@@ -55,6 +55,16 @@ function getFinalResult(finalMatch) {
 }
 
 /**
+ * @param {object} thirdPlaceMatch
+ */
+function getThirdPlaceResult(thirdPlaceMatch) {
+  if (!thirdPlaceMatch?.winner_team_id) return null;
+  return thirdPlaceMatch.winner_team_id === thirdPlaceMatch.team1_id
+    ? thirdPlaceMatch.team1_name
+    : thirdPlaceMatch.team2_name;
+}
+
+/**
  * @param {string} division
  * @param {Date} completedAt
  */
@@ -96,7 +106,9 @@ export async function archiveCompletedDivision(db, division) {
 
   const teams = await getDivisionTeamsWithPlayers(db, division);
   const finalMatch = overview.matches.find((m) => m.round_type === 'Final');
+  const thirdPlaceMatch = overview.matches.find((m) => m.round_type === 'Third Place');
   const { champion, runnerUp } = getFinalResult(finalMatch);
+  const thirdPlace = getThirdPlaceResult(thirdPlaceMatch);
   const completedAt = finalMatch?.updated_at
     ? new Date(finalMatch.updated_at)
     : new Date();
@@ -107,6 +119,7 @@ export async function archiveCompletedDivision(db, division) {
     finalResult: {
       championTeamName: champion,
       runnerUpTeamName: runnerUp,
+      thirdPlaceTeamName: thirdPlace,
       finalMatch: finalMatch
         ? {
             id: finalMatch.id,

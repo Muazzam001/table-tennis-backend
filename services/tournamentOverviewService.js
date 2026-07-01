@@ -15,7 +15,15 @@ import {
   resolveQualifiersPerGroup,
 } from '@shared/tournament/constants.js';
 import { ensureThirdPlaceMatch } from './matchProgressionService.js';
+import { getDivisionSettings } from './divisionSettingsService.js';
+import { getTierAssignments } from './tierPyramidService.js';
+import { getPyramidProgressionLog } from './tierPyramidProgressionService.js';
 import { resolveDivisionParam } from '@shared/tournament/divisions.js';
+import { isTierPyramidFormat } from '@shared/tournament/formats/registry.js';
+import {
+  derivePyramidTournamentStatus,
+  getS1GroupsFromMatches,
+} from '@shared/tournament/formats/tierPyramid/index.js';
 
 /**
  * Build the full tournament overview payload for a division (live data).
@@ -25,6 +33,64 @@ import { resolveDivisionParam } from '@shared/tournament/divisions.js';
  */
 export async function buildDivisionOverview(db, division, { healThirdPlace = true } = {}) {
   division = resolveDivisionParam(division) || division;
+  const divisionSettings = await getDivisionSettings(db, division);
+
+  if (isTierPyramidFormat(divisionSettings.tournament_format)) {
+    if (healThirdPlace) {
+      try {
+        await ensureThirdPlaceMatch(db, division);
+      } catch (healError) {
+        console.error('Third place auto-heal skipped:', healError.message);
+      }
+    }
+
+    const matches = await getDivisionMatches(db, division);
+    const tierState = await getTierAssignments(db, division);
+    const config = tierState.config;
+    const teams = tierState.teams.map((t) => ({ id: t.id, team_name: t.team_name, tier: t.tier }));
+    const s1Groups = getS1GroupsFromMatches(matches, teams);
+
+    /** @type {Record<string, object[]>} */
+    const standings = {};
+    for (const [poolId, poolTeams] of Object.entries(s1Groups)) {
+      const poolMatches = matches.filter((m) => m.pool === poolId && m.round_type === 'S1');
+      standings[poolId] = calculateGroupStandings(poolTeams, poolMatches, { roundTypes: ['S1'] });
+    }
+
+    const tier1Teams = teams.filter((t) => t.tier === 1);
+    const s2Standings =
+      tier1Teams.length > 0
+        ? calculateGroupStandings(
+            tier1Teams,
+            matches.filter((m) => m.round_type === 'S2'),
+            { roundTypes: ['S2'] }
+          )
+        : [];
+
+    const status = derivePyramidTournamentStatus(matches, config);
+    const progressionLog = await getPyramidProgressionLog(db, division, 50);
+
+    return {
+      division,
+      format: 'tier-pyramid',
+      tournament_format: divisionSettings.tournament_format,
+      config,
+      status,
+      pyramid: {
+        config,
+        entrants: tierState.teams,
+        tierAssignments: tierState.tierAssignments,
+        s1Groups: Object.entries(s1Groups).map(([id, poolTeams]) => ({ id, teams: poolTeams })),
+        standings,
+        s2Standings,
+        progressionLog,
+      },
+      groups: Object.entries(s1Groups).map(([id, poolTeams]) => ({ id, teams: poolTeams })),
+      standings,
+      matches,
+    };
+  }
+
   if (healThirdPlace) {
     try {
       await ensureThirdPlaceMatch(db, division);

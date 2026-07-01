@@ -6,6 +6,7 @@ import {
   getTournamentSetupOptions,
 } from '@shared/tournament/index.js';
 import { scheduleFixtures, validateDateRangeForMatches } from '@shared/tournament/scheduling.js';
+import { scheduleRoundRobinGroups, assertNoConcurrentTeamMatches } from '@shared/tournament/roundRobinScheduling.js';
 
 /**
  * Build a complete group-stage schedule for all teams in a division.
@@ -43,7 +44,7 @@ export function buildDivisionGroupStageSchedule(teams, division, startDate, venu
     throw new Error(rangeCheck.message);
   }
 
-  const { matches, availableSlots } = scheduleFixtures(fixtures, startDate, venue, endDate);
+  const { matches, availableSlots } = scheduleRoundRobinGroups(fixtures, startDate, venue, endDate);
 
   const groupSummary = Object.fromEntries(
     Object.entries(groups).map(([id, groupTeams]) => [

@@ -15,6 +15,7 @@ import {
 } from '../services/divisionSettingsService.js';
 import { getMergedPairingRules } from '../services/pairingRuleService.js';
 import { buildDoublesTeamsWithPairingRules } from '@shared/tournament/teamPairing.js';
+import { afterDivisionTeamsChanged } from '../services/pyramidTeamSyncService.js';
 
 const shufflePlayers = (players) => {
   const shuffled = [...players];
@@ -183,6 +184,10 @@ export const createTeam = async (req, res, next) => {
       [normalizedName, player1_id, singles ? null : player2_id, division]
     );
 
+    if (singles) {
+      await afterDivisionTeamsChanged(pool, division);
+    }
+
     res.status(201).json({
       success: true,
       message: singles ? 'Entrant created successfully' : 'Team created successfully',
@@ -311,12 +316,125 @@ export const updateTeam = async (req, res, next) => {
 
     await pool.execute(`UPDATE teams SET ${updateFields.join(', ')} WHERE id = ?`, values);
 
+    if (singles) {
+      await afterDivisionTeamsChanged(pool, division);
+    }
+
     res.json({ success: true, message: 'Team updated successfully' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({
         success: false,
         message: 'This player or team combination already exists in this division',
+      });
+    }
+    next(error);
+  }
+};
+
+// Replace all teams for a division in one request (propagates pyramid tiers after save)
+export const replaceTeamsForDivision = async (req, res, next) => {
+  let connection = null;
+  try {
+    const { division } = req.params;
+    const resolved = rejectInvalidDivision(res, division);
+    if (resolved === undefined) return;
+
+    const { teams } = req.body;
+    if (!Array.isArray(teams) || teams.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'teams array is required with at least one entrant',
+      });
+    }
+
+    const competitionFormat = await getCompetitionFormat(pool, resolved);
+    const singles = isSinglesFormat(competitionFormat);
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+    await connection.execute('DELETE FROM teams WHERE division = ?', [resolved]);
+
+    for (const team of teams) {
+      const { team_name, player1_id, player2_id } = team;
+
+      const [player1Rows] = await connection.execute(
+        'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
+        [player1_id]
+      );
+      if (player1Rows.length === 0) {
+        throw Object.assign(new Error('Player not found or inactive'), { statusCode: 400 });
+      }
+
+      let player2 = null;
+      if (!singles) {
+        if (player2_id == null) {
+          throw Object.assign(new Error('Doubles teams require two players.'), { statusCode: 400 });
+        }
+        const [player2Rows] = await connection.execute(
+          'SELECT id, name, expertise_level, category FROM players WHERE id = ? AND is_active = TRUE',
+          [player2_id]
+        );
+        if (player2Rows.length === 0) {
+          throw Object.assign(new Error('Second player not found or inactive'), { statusCode: 400 });
+        }
+        player2 = player2Rows[0];
+      } else if (player2_id != null) {
+        throw Object.assign(new Error('Singles divisions use one player per team.'), { statusCode: 400 });
+      }
+
+      const validationError = validatePlayersForDivision(
+        player1Rows[0],
+        player2,
+        resolved,
+        competitionFormat
+      );
+      if (validationError) {
+        throw Object.assign(new Error(validationError), { statusCode: 400 });
+      }
+
+      const normalizedName = normalizeTeamName(
+        String(team_name || '').trim() || (singles ? player1Rows[0].name : ''),
+        resolved
+      );
+      if (!normalizedName) {
+        throw Object.assign(new Error('Team name is required'), { statusCode: 400 });
+      }
+
+      await connection.execute(
+        'INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, ?, ?)',
+        [normalizedName, player1_id, singles ? null : player2_id, resolved]
+      );
+    }
+
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    const pyramidTiers = await afterDivisionTeamsChanged(pool, resolved);
+    const [rows] = await pool.execute(`${TEAM_SELECT} WHERE t.division = ? ORDER BY t.id`, [resolved]);
+
+    res.status(201).json({
+      success: true,
+      message: `${teams.length} entrant(s) saved for ${resolved} division`,
+      data: { teams: rows, pyramidTiers },
+    });
+  } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback();
+      } catch {
+        // ignore
+      }
+      connection.release();
+    }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({
+        success: false,
+        message: 'A player or team combination already exists in this division',
       });
     }
     next(error);
@@ -397,7 +515,7 @@ export const generateRandomTeams = async (req, res, next) => {
       if (singles) {
         for (let i = 0; i < shuffledPlayers.length; i += 1) {
           const player = shuffledPlayers[i];
-          const teamName = buildDefaultTeamName(i + 1);
+          const teamName = String(player.name || '').trim() || buildDefaultTeamName(i + 1);
 
           await pool.execute(
             'INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, NULL, ?)',
@@ -435,6 +553,8 @@ export const generateRandomTeams = async (req, res, next) => {
           });
         }
       }
+
+      await afterDivisionTeamsChanged(pool, divisionName);
     }
 
     if (allTeams.length === 0) {

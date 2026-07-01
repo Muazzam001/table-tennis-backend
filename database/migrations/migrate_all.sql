@@ -8,8 +8,11 @@
 --   mysql -u root -p table_tennis_tournament < database/migrations/004_pool_varchar.sql
 --   mysql -u root -p table_tennis_tournament < database/migrations/005_unique_match_constraint.sql
 --   mysql -u root -p table_tennis_tournament < database/migrations/008_optional_player_email.sql
+--   ...
+--   mysql -u root -p table_tennis_tournament < database/migrations/016_tier_pyramid.sql
 --
 -- For NEW databases, use database/schema.sql instead (already includes everything).
+-- Or run: cd backend && npm run migrate
 --
 -- The seed controller (POST /api/seed/teams-and-matches) also applies these migrations automatically.
 

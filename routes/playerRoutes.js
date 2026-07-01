@@ -22,6 +22,10 @@ const playerValidation = [
     .withMessage('Please enter a valid email address'),
   body('expertise_level').isIn(['Beginner', 'Intermediate', 'Expert']).withMessage('Expertise level must be Beginner, Intermediate, or Expert'),
   body('category').optional().isIn(['Men', 'Women']).withMessage('Category must be Men or Women'),
+  body('pyramid_tier')
+    .optional({ nullable: true })
+    .custom((value) => value === null || value === '' || [1, 2, 3, '1', '2', '3'].includes(value))
+    .withMessage('Pyramid tier must be 1, 2, or 3'),
 ];
 
 // Public routes (read-only for all users)

@@ -1,8 +1,10 @@
 import pool from '../utils/database.js';
 import { countPlayersForDivision } from '../services/tournamentService.js';
-import { getCompetitionFormat } from '../services/divisionSettingsService.js';
+import { getDivisionSettings } from '../services/divisionSettingsService.js';
+import { getTierPyramidSetupForDivision } from '../services/tierPyramidService.js';
 import { getTournamentSetupOptions } from '@shared/tournament/constants.js';
 import { countQualifyingMatches } from '@shared/tournament/matchGeneration.js';
+import { isTierPyramidFormat } from '@shared/tournament/formats/registry.js';
 import {
   suggestMinimumEndDate,
   resolveTimeSlotConfig,
@@ -37,7 +39,23 @@ export const getTournamentSetup = async (req, res, next) => {
     );
 
     const playerCount = await countPlayersForDivision(pool, division);
-    const competitionFormat = await getCompetitionFormat(pool, division);
+    const divisionSettings = await getDivisionSettings(pool, division);
+    const { competition_format: competitionFormat, tournament_format: tournamentFormat } =
+      divisionSettings;
+
+    if (isTierPyramidFormat(tournamentFormat)) {
+      const pyramidOptions = await getTierPyramidSetupForDivision(pool, division);
+      return res.json({
+        success: true,
+        data: {
+          division,
+          competition_format: competitionFormat,
+          tournament_format: tournamentFormat,
+          ...pyramidOptions,
+        },
+      });
+    }
+
     const options = getTournamentSetupOptions(teams.length, playerCount);
     const resolvedGroupCount = groupCountParam
       ? Number(groupCountParam)
@@ -80,6 +98,7 @@ export const getTournamentSetup = async (req, res, next) => {
       data: {
         division,
         competition_format: competitionFormat,
+        tournament_format: tournamentFormat,
         ...options,
         scheduling,
       },

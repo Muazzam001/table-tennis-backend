@@ -1,5 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
+import { MATCH_ROUND_TYPES } from '@shared/tournament/roundTypes.js';
 import {
   getAllMatches,
   getMatchById,
@@ -12,7 +13,8 @@ import {
   generateQuarterFinals,
   generateSemiFinals,
   generateFinal,
-  generateThirdPlace
+  generateThirdPlace,
+  autoFillMatchResults,
 } from '../controllers/matchController.js';
 import { authenticate, isAdmin } from '../middlewares/auth.js';
 import { handleValidationErrors } from '../middlewares/validation.js';
@@ -25,7 +27,7 @@ const matchValidation = [
   body('team2_id').isInt().withMessage('Team 2 ID must be a valid integer'),
   body('scheduled_date').isISO8601().withMessage('Scheduled date must be a valid ISO 8601 date'),
   body('venue').optional().trim(),
-  body('round_type').optional().isIn(['Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place']),
+  body('round_type').optional().isIn(MATCH_ROUND_TYPES),
   body('pool').optional().isString().isLength({ min: 1, max: 5 })
 ];
 
@@ -43,6 +45,7 @@ router.post('/generate-quarter-finals', authenticate, isAdmin, generateQuarterFi
 router.post('/generate-semi-finals', authenticate, isAdmin, generateSemiFinals);
 router.post('/generate-final', authenticate, isAdmin, generateFinal);
 router.post('/generate-third-place', authenticate, isAdmin, generateThirdPlace);
+router.post('/auto-fill-results', authenticate, isAdmin, autoFillMatchResults);
 router.put('/:id/result', authenticate, isAdmin, updateMatchResult);
 
 export default router;

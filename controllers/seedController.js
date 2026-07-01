@@ -6,57 +6,8 @@ import {
   VALID_DIVISIONS,
   countPlayersByDivision,
 } from '@shared/tournament/competitionFormat.js';
-
-// { name: 'Waheed A', email: 'waheed.a@ebitlogix.com' },
-// { name: 'Mahboob H', email: 'mahboob.h@ebitlogix.com' },
-
-// { name: 'Arshia T', email: 'arshia.t@ebitlogix.com' },
-// { name: 'Masooma Z', email: 'masooma.z@ebitlogix.com' },
-    // { name: 'Zainab K', email: 'zainab.k@ebitlogix.com' },
-
-// Sample player data for seeding (from seed.sql)
-const SAMPLE_PLAYERS = {
-  expert: [
-    { name: 'Zafar A', email: 'zafar.a@ebitlogix.com' },
-    { name: 'Zaigham B', email: 'zaigham.b@ebitlogix.com' },
-    { name: 'Besalat A', email: 'besalat.a@ebitlogix.com' },
-    { name: 'Ali R', email: 'ali.r@ebitlogix.com' },
-    { name: 'Bilal S', email: 'bilal.s@ebitlogix.com' },
-    { name: 'Shahrukh K', email: 'shahrukh.k@ebitlogix.com' },
-    { name: 'Uzair A', email: 'uzair.a@ebitlogix.com' },
-    { name: 'Mehroz K', email: 'mehroz.k@ebitlogix.com' },
-    { name: 'Muazzam Y', email: 'muazzam.y@ebitlogix.com' },
-    { name: 'Ghulam D', email: 'ghulam.gd@ebitlogix.com' },
-    { name: 'Ramzan K', email: 'ramzan.k@ebitlogix.com' },
-    { name: 'M Arshad', email: 'm.arshad@ebitlogix.com' },
-    { name: 'Salman M', email: 'salman.m@ebitlogix.com' },
-    { name: 'Zeeshan F', email: 'zeeshan.f@ebitlogix.com' },
-    { name: 'Haroon R', email: 'haroon.r@ebitlogix.com' },
-    { name: 'Hamza QA', email: 'hamza.qa@ebitlogix.com' },
-    { name: 'M Inamullah', email: 'm.inamullah@ebitlogix.com' },
-    { name: 'Ahmad T', email: 'ahmad.t@ebitlogix.com' },
-    { name: 'M Naseem', email: 'm.naseem@ebitlogix.com' },
-    { name: 'Arslan QA', email: 'arslan.qa@ebitlogix.com' },
-    { name: 'Usama S', email: 'usama.s@ebitlogix.com' },
-    { name: 'Zaeem A', email: 'zaeem.a@ebitlogix.com' },
-    { name: 'M Waqas', email: 'm.waqas@ebitlogix.com' },
-    { name: 'Aizaz A', email: 'aizaz.a@ebitlogix.com' },
-    { name: 'Faizan R', email: 'faizan.r@ebitlogix.com' },
-    { name: 'Anees R', email: 'anees.r@ebitlogix.com' },
-    { name: 'M Usman', email: 'm.usman@ebitlogix.com' },
-    { name: 'Hamza I', email: 'hamza.i@ebitlogix.com' }
-  ],
-  intermediate: [
-  ],
-  women: [
-    { name: 'Ayesha A', email: 'ayesha.a@ebitlogix.com' },
-    { name: 'Benish A', email: 'benish.a@ebitlogix.com' },
-    { name: 'Urwah A', email: 'urwah.a@ebitlogix.com' },
-    { name: 'Hafsa S', email: 'hafsa.s@ebitlogix.com' },
-    { name: 'Mahnoor T', email: 'mahnoor.t@ebitlogix.com' },
-    { name: 'Malaika K', email: 'malaika.k@ebitlogix.com' },
-  ]
-};
+import { upsertAllSeedPlayers } from '../services/playerSeedService.js';
+import { bootstrapPyramidTracksFromPlayers } from '../services/pyramidTeamSyncService.js';
 
 // Helper function to migrate existing tables (add missing columns)
 // This ensures old databases get updated with new columns
@@ -96,6 +47,11 @@ const migrateExistingTables = async (connection, dbName) => {
         column: 'category',
         table: 'players',
         sql: `ALTER TABLE players ADD COLUMN category ENUM('Men', 'Women') DEFAULT 'Men' AFTER expertise_level`
+      },
+      {
+        column: 'pyramid_tier',
+        table: 'players',
+        sql: `ALTER TABLE players ADD COLUMN pyramid_tier TINYINT UNSIGNED NULL COMMENT '1, 2, or 3 for tier-pyramid eligibility' AFTER category`
       },
       {
         column: 'division',
@@ -156,6 +112,13 @@ const migrateExistingTables = async (connection, dbName) => {
           if (migration.column === 'category') {
             try {
               await connection.query(`ALTER TABLE players ADD INDEX idx_category (category)`);
+            } catch (e) {
+              // Index might already exist
+            }
+          }
+          if (migration.column === 'pyramid_tier') {
+            try {
+              await connection.query(`ALTER TABLE players ADD INDEX idx_pyramid_tier (pyramid_tier)`);
             } catch (e) {
               // Index might already exist
             }
@@ -240,7 +203,7 @@ const getConnectionErrorMessage = (error) => {
 };
 
 // Helper function to ensure database and tables exist
-const ensureDatabaseAndTables = async () => {
+export const ensureDatabaseAndTables = async () => {
   let connection = null;
   try {
     // Validate required environment variables
@@ -455,66 +418,8 @@ const sanitizeSeedError = (error) => {
   return message;
 };
 
-const insertSamplePlayers = async (safeExecute) => {
-  let playersCreated = 0;
-
-  for (const player of SAMPLE_PLAYERS.expert) {
-    try {
-      const [existing] = await safeExecute(
-        'SELECT id FROM players WHERE email = ?',
-        [player.email]
-      );
-
-      if (existing.length === 0) {
-        await safeExecute(
-          'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
-          [player.name, player.email, 'Expert', 'Men', true]
-        );
-        playersCreated++;
-      }
-    } catch (error) {
-      console.error(`Error inserting player ${player.name}:`, error.message);
-    }
-  }
-
-  for (const player of SAMPLE_PLAYERS.intermediate) {
-    try {
-      const [existing] = await safeExecute(
-        'SELECT id FROM players WHERE email = ?',
-        [player.email]
-      );
-
-      if (existing.length === 0) {
-        await safeExecute(
-          'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
-          [player.name, player.email, 'Intermediate', 'Men', true]
-        );
-        playersCreated++;
-      }
-    } catch (error) {
-      console.error(`Error inserting player ${player.name}:`, error.message);
-    }
-  }
-
-  for (const player of SAMPLE_PLAYERS.women) {
-    try {
-      const [existing] = await safeExecute(
-        'SELECT id FROM players WHERE email = ?',
-        [player.email]
-      );
-
-      if (existing.length === 0) {
-        await safeExecute(
-          'INSERT INTO players (name, email, expertise_level, category, is_active) VALUES (?, ?, ?, ?, ?)',
-          [player.name, player.email, 'Expert', 'Women', true]
-        );
-        playersCreated++;
-      }
-    } catch (error) {
-      console.error(`Error inserting player ${player.name}:`, error.message);
-    }
-  }
-
+const insertSamplePlayers = async () => {
+  const { playersCreated } = await upsertAllSeedPlayers(pool);
   return playersCreated;
 };
 
@@ -547,12 +452,13 @@ export const seedPlayers = async (req, res, next) => {
       }
     }
 
-    const playersCreated = await insertSamplePlayers(safeExecute);
+    const playersCreated = await insertSamplePlayers();
+    const pyramidBootstrap = await bootstrapPyramidTracksFromPlayers(pool);
 
     let players = [];
     try {
       [players] = await safeExecute(
-        'SELECT id, name, expertise_level, category FROM players WHERE is_active = TRUE'
+        'SELECT id, name, expertise_level, category, pyramid_tier FROM players WHERE is_active = TRUE'
       );
     } catch (error) {
       console.error('Error fetching players:', error.message);
@@ -578,21 +484,35 @@ export const seedPlayers = async (req, res, next) => {
       ])
     );
 
-    res.status(201).json({
-      success: true,
-      message:
-        `Player seeding completed. ${playersCreated > 0 ? `${playersCreated} players created. ` : ''}` +
-        'Edit players on the Players page, generate teams on the Teams page, then create schedules on the Matches page.',
-      data: {
-        playersCreated,
-        divisionCounts,
-        possibleTeams,
-        workflow: [
+    const pyramidTrack = pyramidBootstrap.find((r) => r.division === 'Men');
+    const workflow = pyramidTrack
+      ? [
+          'Review and edit player details on the Players page (pyramid tier is on each Men player)',
+          'Men division is preset to Singles + Tier Pyramid — generate entrants on the Teams page',
+          'Tier assignments sync automatically from player pyramid tiers when entrants are saved',
+          'Open Matches → Men → generate Tier Pyramid Level 1 schedule',
+          'For Women: generate doubles teams on the Teams page, then schedules on Matches',
+        ]
+      : [
           'Review and edit player details on the Players page',
           'Generate teams per division on the Teams page (even player counts required)',
           'Generate group-stage schedules on the Matches page after teams are saved',
           'Progress through Quarter Finals, Semi Finals, Final, and Third Place from Matches',
-        ],
+        ];
+
+    res.status(201).json({
+      success: true,
+      message:
+        `Player seeding completed. ${playersCreated > 0 ? `${playersCreated} players created. ` : ''}` +
+        (pyramidTrack?.settingsConfigured
+          ? 'Men division configured for tier pyramid. Generate singles entrants on the Teams page — tiers apply automatically.'
+          : 'Edit players on the Players page, generate teams on the Teams page, then create schedules on the Matches page.'),
+      data: {
+        playersCreated,
+        divisionCounts,
+        possibleTeams,
+        pyramidBootstrap,
+        workflow,
       },
     });
   } catch (error) {

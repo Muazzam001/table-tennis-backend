@@ -12,11 +12,13 @@ CREATE TABLE IF NOT EXISTS players (
     email VARCHAR(200) UNIQUE NULL,
     expertise_level ENUM('Beginner', 'Intermediate', 'Expert') NOT NULL DEFAULT 'Beginner',
     category ENUM('Men', 'Women') NOT NULL DEFAULT 'Men',
+    pyramid_tier TINYINT UNSIGNED NULL COMMENT '1, 2, or 3 for tier-pyramid eligibility',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_expertise (expertise_level),
     INDEX idx_category (category),
+    INDEX idx_pyramid_tier (pyramid_tier),
     INDEX idx_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -24,6 +26,8 @@ CREATE TABLE IF NOT EXISTS players (
 CREATE TABLE IF NOT EXISTS division_settings (
     division ENUM('Men', 'Women') PRIMARY KEY,
     competition_format ENUM('doubles', 'singles') NOT NULL DEFAULT 'doubles',
+    tournament_format ENUM('groups', 'single-group', 'pools-2', 'tier-pyramid') NOT NULL DEFAULT 'groups',
+    format_config JSON NULL COMMENT 'Tier sizes, group count, qualifiers, etc.',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -38,6 +42,12 @@ CREATE TABLE IF NOT EXISTS teams (
     player1_id INT NOT NULL,
     player2_id INT NULL COMMENT 'NULL for singles (one player per team)',
     division ENUM('Men', 'Women') NOT NULL,
+    tier TINYINT UNSIGNED NULL COMMENT '1, 2, or 3 for tier-pyramid',
+    pyramid_stage ENUM(
+        'registered', 'S1', 'S2', 'L2', 'L3', 'final', 'champion', 'eliminated'
+    ) NULL,
+    pyramid_status ENUM('active', 'advanced', 'eliminated', 'withdrawn') NULL DEFAULT 'active',
+    advancement_source VARCHAR(50) NULL COMMENT 'e.g. S1-A1, S2-top, L2-win',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY unique_doubles_team (player1_id, player2_id),
@@ -45,6 +55,9 @@ CREATE TABLE IF NOT EXISTS teams (
     INDEX idx_player1 (player1_id),
     INDEX idx_player2 (player2_id),
     INDEX idx_division (division),
+    INDEX idx_tier (tier),
+    INDEX idx_pyramid_stage (pyramid_stage),
+    INDEX idx_pyramid_status (pyramid_status),
     FOREIGN KEY (player1_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (player2_id) REFERENCES players(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -57,12 +70,19 @@ CREATE TABLE IF NOT EXISTS matches (
     scheduled_date DATETIME NOT NULL,
     venue VARCHAR(150),
     status ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled') DEFAULT 'Scheduled',
-    round_type ENUM('Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place') DEFAULT 'Qualifying',
+    round_type ENUM(
+        'Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place',
+        'S1', 'S2', 'Level 2', 'Level 3'
+    ) DEFAULT 'Qualifying',
     pool VARCHAR(15) NULL COMMENT 'Group id for qualifying (A-Z). NULL for knockout rounds.',
+    pyramid_stage ENUM('S1', 'S2', 'L2', 'L3', 'Final') NULL,
+    stage_sequence INT NULL COMMENT 'Bracket slot index within stage',
     division ENUM('Men', 'Women') NOT NULL,
     winner_team_id INT NULL,
     score_team1 INT DEFAULT 0,
     score_team2 INT DEFAULT 0,
+    set_game_scores JSON NULL COMMENT 'Array of {team1, team2} game points per set played',
+    game_point_format TINYINT UNSIGNED NOT NULL DEFAULT 11 COMMENT '11 or 21 point games when result was recorded',
     is_abandoned BOOLEAN DEFAULT FALSE,
     abandoned_reason TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -74,6 +94,7 @@ CREATE TABLE IF NOT EXISTS matches (
     INDEX idx_status (status),
     INDEX idx_round_type (round_type),
     INDEX idx_pool (pool),
+    INDEX idx_pyramid_stage_match (pyramid_stage),
     INDEX idx_division (division),
     UNIQUE KEY unique_match_teams_round_pool (team1_id, team2_id, round_type, pool),
     FOREIGN KEY (team1_id) REFERENCES teams(id) ON DELETE CASCADE,
@@ -119,6 +140,27 @@ CREATE TABLE IF NOT EXISTS team_pairing_rules (
     FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
     FOREIGN KEY (related_player_id) REFERENCES players(id) ON DELETE CASCADE,
     CHECK (player_id < related_player_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Audit trail for tier pyramid advancement and admin overrides
+CREATE TABLE IF NOT EXISTS tournament_progression_log (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    division ENUM('Men', 'Women') NOT NULL,
+    team_id INT NOT NULL,
+    from_stage VARCHAR(20) NOT NULL,
+    to_stage VARCHAR(20) NOT NULL,
+    from_status VARCHAR(20) NOT NULL,
+    to_status VARCHAR(20) NOT NULL,
+    reason ENUM('auto', 'manual_override', 'withdrawal', 'regeneration') NOT NULL,
+    triggered_by_match_id INT NULL,
+    admin_user_id INT NULL,
+    notes TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_division (division),
+    INDEX idx_team (team_id),
+    INDEX idx_created_at (created_at),
+    FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+    FOREIGN KEY (triggered_by_match_id) REFERENCES matches(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Tournament archives (completed track snapshots for historical viewing)

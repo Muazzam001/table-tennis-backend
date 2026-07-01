@@ -14,6 +14,7 @@ import {
   resolveTournamentConfig,
   buildConfigFromCounts,
   scheduleFixtures,
+  scheduleRoundRobinGroups,
   validateDateRangeForMatches,
   inferSingleGroupTeamCount,
 } from '@shared/tournament/index.js';
@@ -24,7 +25,16 @@ import {
   createMatchSlotCursor,
 } from '@shared/tournament/scheduling.js';
 import { tryAutoProgressKnockout, ensureThirdPlaceMatch } from '../services/matchProgressionService.js';
+import { tryAutoProgressTierPyramid } from '../services/tierPyramidProgressionService.js';
 import { rejectInvalidDivision, requireDivision } from '../utils/divisionParam.js';
+import { getDivisionSettings } from '../services/divisionSettingsService.js';
+import { generateTierPyramidLevel1Schedule } from '../services/tierPyramidService.js';
+import { isTierPyramidFormat } from '@shared/tournament/formats/registry.js';
+import { ensureMatchSchema } from '../services/matchSchemaService.js';
+import { autoFillMatchResults as runAutoFillMatchResults } from '../services/autoFillMatchResultsService.js';
+import { countPlayersForDivision } from '../services/tournamentService.js';
+import { buildMatchRoundSortCase } from '@shared/tournament/roundTypes.js';
+import { validateMatchResultUpdate } from '@shared/tournament/validateMatchResult.js';
 
 const parseTimeSlotConfigFromBody = (body = {}) => {
   const { timeSlotConfig } = body;
@@ -45,6 +55,8 @@ const parseCourtConfigFromBody = (body = {}) => {
 // Get all matches
 export const getAllMatches = async (req, res, next) => {
   try {
+    await ensureMatchSchema(pool);
+
     const { division } = req.query;
     const resolvedDivision = division ? rejectInvalidDivision(res, division) : null;
     if (division && resolvedDivision === undefined) return;
@@ -77,6 +89,8 @@ export const getAllMatches = async (req, res, next) => {
         m.winner_team_id,
         m.score_team1,
         m.score_team2,
+        m.set_game_scores,
+        m.game_point_format,
         m.is_abandoned,
         m.abandoned_reason,
         t1.team_name as team1_name,
@@ -87,13 +101,8 @@ export const getAllMatches = async (req, res, next) => {
       INNER JOIN teams t2 ON m.team2_id = t2.id
       ${whereClause}
       ORDER BY 
-        CASE m.round_type
-          WHEN 'Qualifying' THEN 1
-          WHEN 'Quarter Final' THEN 2
-          WHEN 'Semi Final' THEN 3
-          WHEN 'Third Place' THEN 4
-          WHEN 'Final' THEN 5
-        END,
+        ${buildMatchRoundSortCase('m.round_type')},
+        m.stage_sequence ASC,
         m.scheduled_date ASC
     `, params);
     res.json({ success: true, data: rows });
@@ -347,10 +356,14 @@ export const createMultipleMatches = async (req, res, next) => {
 // Update match result
 export const updateMatchResult = async (req, res, next) => {
   try {
+    await ensureMatchSchema(pool);
+
     const { id } = req.params;
     const { 
       score_team1, 
-      score_team2, 
+      score_team2,
+      set_game_scores,
+      game_point_format,
       winner_team_id, 
       status, 
       is_abandoned, 
@@ -358,6 +371,23 @@ export const updateMatchResult = async (req, res, next) => {
       scheduled_date,
       venue
     } = req.body;
+
+    const [existingRows] = await pool.execute(
+      `SELECT id, team1_id, team2_id, round_type, score_team1, score_team2,
+              set_game_scores, game_point_format, is_abandoned, abandoned_reason
+       FROM matches WHERE id = ?`,
+      [id]
+    );
+
+    if (existingRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Match not found' });
+    }
+
+    const existingMatch = existingRows[0];
+    const validation = validateMatchResultUpdate(existingMatch, req.body);
+    if (!validation.ok) {
+      return res.status(400).json({ success: false, message: validation.message });
+    }
     
     // Build update query dynamically
     const updateFields = [];
@@ -370,6 +400,18 @@ export const updateMatchResult = async (req, res, next) => {
     if (score_team2 !== undefined) {
       updateFields.push('score_team2 = ?');
       values.push(score_team2);
+    }
+    if (set_game_scores !== undefined) {
+      updateFields.push('set_game_scores = ?');
+      values.push(
+        set_game_scores && Array.isArray(set_game_scores) && set_game_scores.length > 0
+          ? JSON.stringify(set_game_scores)
+          : null
+      );
+    }
+    if (game_point_format !== undefined) {
+      updateFields.push('game_point_format = ?');
+      values.push(Number(game_point_format) === 21 ? 21 : 11);
     }
     if (winner_team_id !== undefined) {
       updateFields.push('winner_team_id = ?');
@@ -423,7 +465,12 @@ export const updateMatchResult = async (req, res, next) => {
     let progression = null;
     if (division && (status === 'Completed' || winner_team_id)) {
       try {
-        progression = await tryAutoProgressKnockout(pool, division);
+        const settings = await getDivisionSettings(pool, division);
+        if (isTierPyramidFormat(settings.tournament_format)) {
+          progression = await tryAutoProgressTierPyramid(pool, division, Number(id));
+        } else {
+          progression = await tryAutoProgressKnockout(pool, division);
+        }
       } catch (progressError) {
         console.error('Auto-progression skipped:', progressError.message);
       }
@@ -917,7 +964,7 @@ export const generateMatchSchedule = async (req, res, next) => {
       endDate,
       venue,
       division,
-      format = 'groups',
+      format,
       groupCount,
       replaceExisting = false,
     } = req.body;
@@ -944,6 +991,58 @@ export const generateMatchSchedule = async (req, res, next) => {
       courtConfig = parseCourtConfigFromBody(req.body);
     } catch (configError) {
       return res.status(400).json({ success: false, message: configError.message });
+    }
+
+    const divisionSettings = await getDivisionSettings(pool, division);
+    const resolvedFormat = format ?? divisionSettings.tournament_format ?? 'groups';
+    const formatConfig =
+      req.body.formatConfig ?? req.body.format_config ?? divisionSettings.format_config;
+
+    if (isTierPyramidFormat(resolvedFormat)) {
+      try {
+        const start = new Date(startDate);
+        const end = endDate ? new Date(endDate) : null;
+        if (end && end < start) {
+          return res.status(400).json({ success: false, message: 'End date must be after start date' });
+        }
+
+        const schedule = await generateTierPyramidLevel1Schedule(pool, {
+          division,
+          startDate,
+          endDate,
+          venue: venue || 'Main Court',
+          timeSlotConfig,
+          courtConfig,
+          replaceExisting,
+          formatConfig,
+        });
+
+        return res.json({
+          success: true,
+          message: `Tier Pyramid Level 1 schedule generated for ${division}. ${schedule.matches.length} matches (S1: ${schedule.matchCounts.s1}, S2: ${schedule.matchCounts.s2}).`,
+          data: {
+            ...schedule,
+            dateRange: {
+              startDate,
+              endDate: endDate || null,
+              totalDays: end ? Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1 : null,
+              matchesScheduled: schedule.matches.length,
+              firstMatch: schedule.matches[0]?.scheduled_date ?? null,
+              lastMatch: schedule.matches[schedule.matches.length - 1]?.scheduled_date ?? null,
+            },
+            division,
+          },
+        });
+      } catch (pyramidError) {
+        if (pyramidError.statusCode) {
+          return res.status(pyramidError.statusCode).json({
+            success: false,
+            message: pyramidError.message,
+            data: pyramidError.data ?? undefined,
+          });
+        }
+        throw pyramidError;
+      }
     }
 
     const start = new Date(startDate);
@@ -983,7 +1082,7 @@ export const generateMatchSchedule = async (req, res, next) => {
 
     let config;
     try {
-      if (format === 'pools-2') {
+      if ((resolvedFormat ?? 'groups') === 'pools-2') {
         if (teamCount < 8 || teamCount % 2 !== 0) {
           return res.status(400).json({
             success: false,
@@ -1030,7 +1129,7 @@ export const generateMatchSchedule = async (req, res, next) => {
       });
     }
 
-    const { matches, availableSlots } = scheduleFixtures(
+    const { matches, availableSlots } = scheduleRoundRobinGroups(
       fixtures,
       startDate,
       venue || 'Main Court',
@@ -1263,5 +1362,39 @@ export const generateThirdPlace = async (req, res, next) => {
   }
 };
 
+// Admin testing helper: auto-fill valid results for pending matches
+export const autoFillMatchResults = async (req, res, next) => {
+  try {
+    await ensureMatchSchema(pool);
+
+    const { roundType, fillAll, setConfig, gamePointsPerSet, division: bodyDivision } = req.body ?? {};
+    let division;
+    try {
+      division = requireDivision(bodyDivision);
+    } catch {
+      return res.status(400).json({ success: false, message: 'Valid division is required.' });
+    }
+
+    const result = await runAutoFillMatchResults(pool, division, {
+      roundType: fillAll ? null : roundType ?? null,
+      fillAll: Boolean(fillAll),
+      setConfig,
+      gamePointsPerSet,
+    });
+
+    const message =
+      result.filled > 0
+        ? `Auto-filled ${result.filled} match result(s). Lower team ID wins each match for predictable testing.`
+        : 'No pending matches to fill for the selected scope.';
+
+    res.json({
+      success: true,
+      message,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 

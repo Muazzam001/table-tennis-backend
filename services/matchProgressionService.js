@@ -20,6 +20,9 @@ import {
   normalizePairing,
 } from './tournamentService.js';
 import { createMatchSlotCursor, resolveCourtConfig } from '@shared/tournament/scheduling.js';
+import { getDivisionSettings } from './divisionSettingsService.js';
+import { isTierPyramidFormat } from '@shared/tournament/formats/registry.js';
+import { ensurePyramidThirdPlaceMatch } from './tierPyramidProgressionService.js';
 
 /**
  * @param {import('mysql2/promise').Pool} db
@@ -65,6 +68,11 @@ async function insertKnockoutMatches(db, matchDefs, division, startDate, courtCo
  * @param {string} division
  */
 export async function ensureThirdPlaceMatch(db, division) {
+  const settings = await getDivisionSettings(db, division);
+  if (isTierPyramidFormat(settings.tournament_format)) {
+    return ensurePyramidThirdPlaceMatch(db, division);
+  }
+
   const matches = await getDivisionMatches(db, division);
   const hasFinal = matches.some((m) => m.round_type === 'Final');
   const hasThird = matches.some((m) => m.round_type === 'Third Place');

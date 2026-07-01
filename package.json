@@ -17,7 +17,9 @@
     "migrate": "node --import ./register-aliases.js scripts/migrate.js",
     "ensure-division-schema": "node --import ./register-aliases.js scripts/ensure-division-schema.mjs",
     "seed": "node --import ./register-aliases.js scripts/reseed.js",
-    "reseed": "node --import ./register-aliases.js scripts/reseed.js"
+    "reseed": "node --import ./register-aliases.js scripts/reseed.js",
+    "seed:tier-pyramid": "node --import ./register-aliases.js scripts/seedTierPyramid.js",
+    "regenerate:pyramid-schedule": "node --import ./register-aliases.js scripts/regeneratePyramidSchedule.js"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -1,6 +1,11 @@
-/** Tournament domain types for group stage + knockout format */
+/** Tournament domain types for group stage + knockout and tier pyramid formats */
 
-export type TournamentFormat = 'groups' | 'groups-4' | 'pools-2';
+export type TournamentFormat =
+  | 'groups'
+  | 'groups-4'
+  | 'pools-2'
+  | 'single-group'
+  | 'tier-pyramid';
 
 export type TournamentStatus =
   | 'Draft'
@@ -11,6 +16,34 @@ export type TournamentStatus =
   | 'Final Active'
   | 'Completed';
 
+/** Tier Pyramid tournament lifecycle (used when format is tier-pyramid) */
+export type PyramidTournamentStatus =
+  | 'Draft'
+  | 'Level 1 Active'
+  | 'Level 1 Complete'
+  | 'Level 2 Active'
+  | 'Level 2 Complete'
+  | 'Level 3 Active'
+  | 'Level 3 Complete'
+  | 'Semifinals Active'
+  | 'Semifinals Complete'
+  | 'Final Active'
+  | 'Completed';
+
+export type PyramidStage = 'S1' | 'S2' | 'L2' | 'L3' | 'Final';
+
+export type PyramidEntrantStage =
+  | 'registered'
+  | 'S1'
+  | 'S2'
+  | 'L2'
+  | 'L3'
+  | 'final'
+  | 'champion'
+  | 'eliminated';
+
+export type EntrantStatus = 'active' | 'advanced' | 'eliminated' | 'withdrawn';
+
 export type PoolId = string;
 
 export type RoundType =
@@ -18,12 +51,48 @@ export type RoundType =
   | 'Quarter Final'
   | 'Semi Final'
   | 'Final'
-  | 'Third Place';
+  | 'Third Place'
+  | 'S1'
+  | 'S2'
+  | 'Level 2'
+  | 'Level 3';
 
 export interface Team {
   id: number;
   team_name: string;
   division?: string;
+}
+
+export interface TierPyramidConfig {
+  format: 'tier-pyramid';
+  tier1Count: number;
+  tier2Count: number;
+  tier3Count: number;
+  s1GroupCount: number;
+  s1GroupSize: number;
+  s1QualifiersPerGroup: number;
+  s2AdvanceCount: number;
+  s2DropCount: number;
+  l2AdvanceCount: number;
+  l3AdvanceCount: number;
+}
+
+export interface TierAssignment {
+  teamId: number;
+  tier: 1 | 2 | 3;
+}
+
+export interface PyramidEntrant extends Team {
+  tier: 1 | 2 | 3;
+  pyramid_stage: PyramidEntrantStage;
+  pyramid_status: EntrantStatus;
+  matches_won?: number;
+  advancement_source?: string;
+}
+
+export interface SetGameScore {
+  team1: number;
+  team2: number;
 }
 
 export interface MatchResult {
@@ -32,6 +101,10 @@ export interface MatchResult {
   winner_team_id: number | null;
   status: string;
   is_abandoned?: boolean;
+  /** Per-set game points, e.g. [{ team1: 11, team2: 7 }, { team1: 11, team2: 4 }] */
+  set_game_scores?: SetGameScore[] | string | null;
+  /** 11 or 21 — game length used when this result was recorded */
+  game_point_format?: 11 | 21 | null;
 }
 
 export interface Match extends MatchResult {
@@ -44,6 +117,8 @@ export interface Match extends MatchResult {
   venue?: string;
   round_type: RoundType;
   pool?: PoolId | null;
+  pyramid_stage?: PyramidStage | null;
+  stage_sequence?: number | null;
   division?: string;
 }
 
@@ -67,6 +142,14 @@ export interface StandingRow {
   sets_won: number;
   sets_lost: number;
   set_difference: number;
+  points_won: number;
+  points_lost: number;
+  /** NRR-style game-point margin: (points won per match) − (points lost per match) */
+  point_difference: number;
+  /** Knockout / shutout / margin quality from per-set game scores */
+  margin_quality_score: number;
+  /** Rewards dominant set-score wins (2-0) over narrow wins (2-1) */
+  dominance_score: number;
   /** @deprecated Use sets_won — kept for API compatibility */
   games_won: number;
   /** @deprecated Use sets_lost — kept for API compatibility */

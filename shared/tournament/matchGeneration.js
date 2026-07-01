@@ -1,22 +1,27 @@
+import { buildRoundRobinRounds } from './roundRobinScheduling.js';
+
 /**
- * Generate round-robin fixtures within a group.
- * Every participant plays every other participant exactly once.
+ * Generate round-robin fixtures within a group (circle-method round order).
  * @param {import('./types.ts').Team[]} groupTeams
  * @param {string} poolId
  * @returns {{ team1_id: number, team2_id: number, pool: string, round_type: string }[]}
  */
 export function generateRoundRobinMatches(groupTeams, poolId) {
+  const teamIds = groupTeams.map((t) => t.id);
+  const rounds = buildRoundRobinRounds(teamIds);
   const fixtures = [];
-  for (let i = 0; i < groupTeams.length; i += 1) {
-    for (let j = i + 1; j < groupTeams.length; j += 1) {
+
+  for (const round of rounds) {
+    for (const pair of round) {
       fixtures.push({
-        team1_id: groupTeams[i].id,
-        team2_id: groupTeams[j].id,
+        team1_id: pair.team1_id,
+        team2_id: pair.team2_id,
         pool: poolId,
         round_type: 'Qualifying',
       });
     }
   }
+
   return fixtures;
 }
 

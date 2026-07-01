@@ -12,8 +12,13 @@ const router = express.Router();
 
 const formatValidation = [
   body('competition_format')
+    .optional()
     .isIn(['doubles', 'singles'])
     .withMessage('competition_format must be doubles or singles'),
+  body('tournament_format')
+    .optional()
+    .isIn(['groups', 'single-group', 'pools-2', 'tier-pyramid'])
+    .withMessage('tournament_format must be a supported format'),
 ];
 
 router.get('/', listDivisionSettings);
