@@ -2,7 +2,13 @@ import pg from 'pg';
 import { getPgClientConfig, resolvePostgresUrl } from '../utils/pgConnection.js';
 import { isServerless } from '../utils/runtime.js';
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// PostgreSQL COUNT(*) and other BIGINT aggregates arrive as strings in node-pg.
+if (!globalThis.__tableTennisPgInt8ParserInstalled) {
+  types.setTypeParser(20, (value) => (value === null ? null : Number.parseInt(value, 10)));
+  globalThis.__tableTennisPgInt8ParserInstalled = true;
+}
 
 const TABLES_WITHOUT_SERIAL_ID = new Set(['division_settings']);
 

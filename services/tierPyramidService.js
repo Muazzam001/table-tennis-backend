@@ -8,6 +8,7 @@ import { scheduleFixtures, validateDateRangeForMatches } from '@shared/tournamen
 import { scheduleRoundRobinGroups } from '@shared/tournament/roundRobinScheduling.js';
 import { ensureTierPyramidSchema } from './tierPyramidSchemaService.js';
 import { getDivisionSettings, setTournamentFormat } from './divisionSettingsService.js';
+import { sqlCount } from '../utils/sql.js';
 import {
   shouldAutoSyncPyramidTeams,
   ensurePyramidTiersSyncedFromPlayers,
@@ -163,7 +164,7 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
      WHERE division = ? AND round_type IN ('S1', 'S2')`,
     [division]
   );
-  const existingCount = existingRows[0].count;
+  const existingCount = sqlCount(existingRows);
 
   if (existingCount > 0 && !replaceExisting) {
     throw Object.assign(
@@ -343,7 +344,7 @@ export async function getTierPyramidSetupForDivision(db, division, formatConfig 
   ]);
   const settings = await getDivisionSettings(db, division);
   const config = normalizeTierPyramidConfig(formatConfig ?? settings.format_config ?? {});
-  return getTierPyramidSetupOptions(Number(teams[0].count), config);
+  return getTierPyramidSetupOptions(sqlCount(teams), config);
 }
 
 export { getTierPyramidSetupOptions };

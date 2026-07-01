@@ -1,5 +1,6 @@
 import pool from '../utils/database.js';
 import { isDuplicateKeyError, isMissingTableError } from '../utils/dbErrors.js';
+import { sqlCount } from '../utils/sql.js';
 import {
   distributeIntoGroups,
   generateGroupStageMatches,
@@ -543,7 +544,7 @@ export const generateQuarterFinals = async (req, res, next) => {
       "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Quarter Final' AND division = ?",
       [division]
     );
-    if (existingQF[0].count > 0) {
+    if (sqlCount(existingQF) > 0) {
       return res.status(400).json({
         success: false,
         message: 'Quarter Finals already generated.',
@@ -601,7 +602,7 @@ export const generateQuarterFinals = async (req, res, next) => {
         "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND division = ?",
         [division]
       );
-      if (existingThird[0].count === 0) {
+      if (sqlCount(existingThird) === 0) {
         const fullStandings = getFullGroupStandings(groups, allMatches, groupOrder[0]);
         const thirdPairing = generateSingleGroupThirdPlacePairing(fullStandings);
         const normalizedTeam1Id =
@@ -731,7 +732,7 @@ export const generateSemiFinals = async (req, res, next) => {
       [division]
     );
     
-    if (existingSF[0].count > 0) {
+    if (sqlCount(existingSF) > 0) {
       return res.status(400).json({
         success: false,
         message: 'Semi Finals already generated. Delete existing Semi Final matches to regenerate.'
@@ -851,7 +852,7 @@ export const generateFinal = async (req, res, next) => {
       [division]
     );
 
-    if (existingFinal[0].count > 0) {
+    if (sqlCount(existingFinal) > 0) {
       return res.status(400).json({
         success: false,
         message: 'Final already generated. Delete existing Final match to regenerate.'
@@ -1064,7 +1065,7 @@ export const generateMatchSchedule = async (req, res, next) => {
       "SELECT COUNT(*) as count FROM matches WHERE division = ? AND round_type = 'Qualifying'",
       [division]
     );
-    const existingQualifyingCount = existingQualifying[0].count;
+    const existingQualifyingCount = sqlCount(existingQualifying);
 
     if (existingQualifyingCount > 0 && !replaceExisting) {
       return res.status(400).json({
@@ -1246,7 +1247,7 @@ export const generateThirdPlace = async (req, res, next) => {
       "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Third Place' AND division = ?",
       [division]
     );
-    if (existing[0].count > 0) {
+    if (sqlCount(existing) > 0) {
       return res.status(400).json({ success: false, message: 'Third Place match already generated.' });
     }
 
@@ -1308,7 +1309,7 @@ export const generateThirdPlace = async (req, res, next) => {
         "SELECT COUNT(*) as count FROM matches WHERE round_type = 'Final' AND division = ?",
         [division]
       );
-      if (existingFinal[0].count === 0) {
+      if (sqlCount(existingFinal) === 0) {
         return res.status(400).json({
           success: false,
           message: 'Generate the Final before creating the Third Place match.',

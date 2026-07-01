@@ -287,25 +287,36 @@ export function resolveTournamentConfig(teamCount, groupCount, playerCount = nul
  * @param {number|null} [playerCount]
  */
 export function getTournamentSetupOptions(teamCount, playerCount = null) {
-  const even = isEven(teamCount);
-  const singleGroup = even && shouldUseSingleGroupFormat(teamCount, playerCount);
-  const validGroupCounts = even ? getValidGroupCounts(teamCount, DEFAULT_QUALIFIERS_PER_GROUP, playerCount) : [];
+  const normalizedTeamCount = Number(teamCount);
+  const normalizedPlayerCount =
+    playerCount == null || playerCount === '' ? null : Number(playerCount);
+  const even = isEven(normalizedTeamCount);
+  const singleGroup = even && shouldUseSingleGroupFormat(normalizedTeamCount, normalizedPlayerCount);
+  const validGroupCounts = even
+    ? getValidGroupCounts(normalizedTeamCount, DEFAULT_QUALIFIERS_PER_GROUP, normalizedPlayerCount)
+    : [];
   const defaultGroupCount = even
-    ? suggestDefaultGroupCount(teamCount, DEFAULT_QUALIFIERS_PER_GROUP, playerCount)
+    ? suggestDefaultGroupCount(
+        normalizedTeamCount,
+        DEFAULT_QUALIFIERS_PER_GROUP,
+        normalizedPlayerCount
+      )
     : null;
 
   let suggestedConfig = null;
   if (defaultGroupCount) {
     try {
-      suggestedConfig = buildConfigFromCounts(teamCount, defaultGroupCount, { playerCount });
+      suggestedConfig = buildConfigFromCounts(normalizedTeamCount, defaultGroupCount, {
+        playerCount: normalizedPlayerCount,
+      });
     } catch {
       suggestedConfig = null;
     }
   }
 
   return {
-    teamCount,
-    playerCount,
+    teamCount: normalizedTeamCount,
+    playerCount: normalizedPlayerCount,
     isValid: validGroupCounts.length > 0,
     isEven: even,
     isSingleGroup: singleGroup,
@@ -313,11 +324,11 @@ export function getTournamentSetupOptions(teamCount, playerCount = null) {
     defaultGroupCount,
     suggestedConfig,
     rejectionReason: !even
-      ? `Odd team count (${teamCount}) is not supported. Add or remove one team.`
+      ? `Odd team count (${normalizedTeamCount}) is not supported. Add or remove one team.`
       : validGroupCounts.length === 0
         ? singleGroup
-          ? `${teamCount} teams need 4 or 6 teams for single-group knockout (4 → final, 6 → semi-finals).`
-          : `${teamCount} teams cannot be split into a valid knockout bracket.`
+          ? `${normalizedTeamCount} teams need 4 or 6 teams for single-group knockout (4 → final, 6 → semi-finals).`
+          : `${normalizedTeamCount} teams cannot be split into a valid knockout bracket.`
         : null,
   };
 }

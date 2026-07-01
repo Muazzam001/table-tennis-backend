@@ -250,7 +250,8 @@ export function validateTierAssignments(tierAssignments, partial = {}) {
  * @returns {string[]}
  */
 export function validateTierPyramidSetup(participantCount, tierAssignments, partial = {}) {
-  const configErrors = validateTierPyramidConfig(partial, participantCount);
+  const normalizedParticipantCount = Number(participantCount);
+  const configErrors = validateTierPyramidConfig(partial, normalizedParticipantCount);
   const assignmentErrors = validateTierAssignments(tierAssignments, partial);
   return [...configErrors, ...assignmentErrors];
 }
