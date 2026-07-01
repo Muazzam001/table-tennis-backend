@@ -95,13 +95,22 @@ class PgConnection {
   }
 }
 
+function getPoolMaxSize() {
+  if (process.env.PG_POOL_MAX) {
+    const parsed = Number.parseInt(process.env.PG_POOL_MAX, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  // One connection per serverless instance avoids exhausting Supabase pool limits
+  return process.env.VERCEL === '1' ? 1 : 10;
+}
+
 export function createPgPool(connectionString) {
   const url = connectionString || resolvePostgresUrl();
   if (!url) throw new Error('No PostgreSQL connection URL configured');
 
   const pool = new Pool({
     ...getPgClientConfig(url),
-    max: 10,
+    max: getPoolMaxSize(),
   });
 
   const adapter = {
