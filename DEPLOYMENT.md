@@ -32,7 +32,7 @@ Your deployment at **https://table-tennis-backend.vercel.app** needs these in th
 | `JWT_EXPIRES_IN` | `7d` |
 | `CORS_ORIGIN` | Your frontend URL when deployed (e.g. `https://your-frontend.vercel.app`) |
 
-After adding variables, **Redeploy** from the Vercel dashboard. A `500 FUNCTION_INVOCATION_FAILED` on `/api/health` usually means missing env vars or a failed build (`npm run build` must succeed and produce `dist/server.mjs`).
+After adding variables, **Redeploy** from the Vercel dashboard. A `404 NOT_FOUND` usually means the build did not run (`npm run build` must produce `api/index.mjs`). A `500 FUNCTION_INVOCATION_FAILED` usually means missing env vars or a runtime crash.
 
 ## Step 1: Create the Vercel project
 
@@ -42,13 +42,13 @@ After adding variables, **Redeploy** from the Vercel dashboard. A `500 FUNCTION_
 
 | Setting | Value |
 |---------|--------|
-| **Root Directory** | `backend` |
+| **Root Directory** | `.` if this repo is only `backend/`; `backend` if deploying from the monorepo root |
 | **Framework Preset** | Other |
 | **Install Command** | `npm install` |
-| **Build Command** | `npm run build` |
+| **Build Command** | `npm run build` *(must produce `api/index.mjs`)* |
 | **Output Directory** | *(leave empty)* |
 
-`vercel.json` routes all traffic to `dist/server.mjs`, which is produced by `npm run build` (esbuild bundles `server.js` and inlines `@shared` imports — no custom ESM loader at runtime). `server.js` exports the Express app and skips `app.listen()` when `VERCEL=1`.
+`vercel.json` rewrites all routes to `/api`. `npm run build` bundles `server.js` into `api/index.mjs` (esbuild inlines `@shared` imports). `server.js` exports the Express app and skips `app.listen()` when `VERCEL=1`.
 
 ## Step 2: Environment variables
 
@@ -135,9 +135,16 @@ Redeploy the frontend after changing this. See `frontend/DEPLOYMENT.md`.
 
 `backend/shared/` must be present in the deployed repo. `npm run build` runs `sync:shared`, which copies from `../shared` when that folder exists. Commit `backend/shared/` if you deploy only the backend repository.
 
-`npm run build` runs esbuild via `scripts/build-vercel.mjs`, which bundles `server.js` into `dist/server.mjs` with `@shared` resolved at build time. Commit `backend/shared/` if you deploy only the backend repository.
+`npm run build` runs esbuild via `scripts/build-vercel.mjs`, which bundles `server.js` into `api/index.mjs` with `@shared` resolved at build time. Commit `backend/shared/` if you deploy only the backend repository.
 
 ## Troubleshooting
+
+### 404 NOT_FOUND on all routes
+
+- Confirm **Build Command** is `npm run build` (set in `vercel.json` and Vercel dashboard)
+- Open the latest deployment **Build Logs** — you should see `Vercel bundle written to api/index.mjs`
+- If the backend is its own Git repo, **Root Directory** must be `.` (not `backend`)
+- Redeploy after pushing `vercel.json` changes
 
 ### Database connection failed
 
@@ -159,7 +166,7 @@ Free tier: 10s per invocation. Optimize slow queries or upgrade to Pro (60s).
 
 - Run `npm run build` locally in `backend/` to reproduce
 - Ensure `backend/shared/tournament/` is committed
-- Build output must exist at `dist/server.mjs` before the function deploys
+- Build output must exist at `api/index.mjs` after `npm run build`
 
 ## Security checklist
 
