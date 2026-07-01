@@ -39,6 +39,94 @@ export function serpentineDistribute(items, groupCount) {
  */
 
 /**
+ * Distribute tier 2/3 players across groups (balanced or imbalanced).
+ * @param {TieredTeam[]} tier2Teams
+ * @param {TieredTeam[]} tier3Teams
+ * @param {number} groupCount
+ * @param {() => number} [random]
+ * @param {{ allowImbalanced?: boolean }} [options]
+ * @returns {BalancedS1Group[]}
+ */
+export function assignS1Groups(tier2Teams, tier3Teams, groupCount, random = Math.random, options = {}) {
+  const tier2PerGroup = tier2Teams.length / groupCount;
+  const tier3PerGroup = tier3Teams.length / groupCount;
+  const allowImbalanced =
+    options.allowImbalanced ??
+    (tier2Teams.length !== tier3Teams.length ||
+      !Number.isInteger(tier2PerGroup) ||
+      !Number.isInteger(tier3PerGroup) ||
+      tier2PerGroup !== tier3PerGroup);
+  if (allowImbalanced) {
+    return assignImbalancedS1Groups(tier2Teams, tier3Teams, groupCount, random);
+  }
+  return assignBalancedS1Groups(tier2Teams, tier3Teams, groupCount, random);
+}
+
+/**
+ * Distribute unequal tier 2/3 counts across groups (sizes may differ by one).
+ * @param {TieredTeam[]} tier2Teams
+ * @param {TieredTeam[]} tier3Teams
+ * @param {number} groupCount
+ * @param {() => number} [random]
+ * @returns {BalancedS1Group[]}
+ */
+export function assignImbalancedS1Groups(tier2Teams, tier3Teams, groupCount, random = Math.random) {
+  if (groupCount < 1) {
+    throw new Error('groupCount must be at least 1');
+  }
+  const total = tier2Teams.length + tier3Teams.length;
+  if (total < groupCount * 2) {
+    throw new Error(`Need at least 2 players per S1 group (got ${total} for ${groupCount} groups)`);
+  }
+
+  const poolIds = getPoolIds(groupCount);
+  const shuffledT2 = shuffleArray(tier2Teams, random);
+  const shuffledT3 = shuffleArray(tier3Teams, random);
+
+  const baseSize = Math.floor(total / groupCount);
+  const extra = total % groupCount;
+  const groupSizes = Array.from({ length: groupCount }, (_, index) =>
+    baseSize + (index < extra ? 1 : 0)
+  );
+
+  /** @type {BalancedS1Group[]} */
+  const groups = [];
+  let t2Cursor = 0;
+  let t3Cursor = 0;
+
+  for (let index = 0; index < groupCount; index += 1) {
+    const targetSize = groupSizes[index];
+    const idealT2 = Math.round((targetSize * tier2Teams.length) / total);
+    const tier2Take = Math.min(
+      idealT2,
+      shuffledT2.length - t2Cursor,
+      targetSize - Math.min(1, shuffledT3.length - t3Cursor)
+    );
+    const tier3Take = targetSize - tier2Take;
+
+    const tier2Slice = shuffledT2.slice(t2Cursor, t2Cursor + tier2Take);
+    const tier3Slice = shuffledT3.slice(t3Cursor, t3Cursor + tier3Take);
+    t2Cursor += tier2Take;
+    t3Cursor += tier3Take;
+
+    groups.push({
+      id: poolIds[index],
+      teams: [...tier2Slice, ...tier3Slice],
+      tier2Teams: tier2Slice,
+      tier3Teams: tier3Slice,
+    });
+  }
+
+  if (t2Cursor !== shuffledT2.length || t3Cursor !== shuffledT3.length) {
+    throw new Error(
+      `Failed to distribute tier 2/3 players across ${groupCount} groups (${tier2Teams.length} T2, ${tier3Teams.length} T3)`
+    );
+  }
+
+  return groups;
+}
+
+/**
  * Balance Tier 2 and Tier 3 players across S1 groups (e.g. 3+3 per group).
  * @param {TieredTeam[]} tier2Teams
  * @param {TieredTeam[]} tier3Teams

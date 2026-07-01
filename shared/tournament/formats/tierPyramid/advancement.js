@@ -4,15 +4,18 @@
 /** @typedef {import('../../types.ts').PyramidTournamentStatus} PyramidTournamentStatus */
 
 import { calculateGroupStandings } from '../../standings.js';
-import { normalizeTierPyramidConfig } from './config.js';
+import { normalizeTierPyramidConfig, PYRAMID_SEMIFINAL_TEAM_COUNT } from './config.js';
 import {
   generateLevel2CrossoverPairings,
   generateLevel3CrossoverPairings,
+  buildLevel3CrossoverRound,
   generateSeededBracketPairings,
   partitionLevel2Entrants,
   partitionLevel3Entrants,
   rankEntrantsByCumulativeWins,
+  getOrderedBracketResults,
 } from './seeding.js';
+import { buildSemiFinalPairingsFromRound } from './bracket.js';
 import { generateThirdPlacePairing } from '../../knockout.js';
 import { getLevel3QuarterFinalMatches, getPyramidSemiFinalMatches } from './roundFilters.js';
 
@@ -263,55 +266,67 @@ export function buildLevel2Fixtures(teams, allMatches) {
 /**
  * @param {Team[]} teams — L3 entrants
  * @param {Match[]} allMatches
+ * @returns {{ fixtures: ReturnType<typeof generateLevel3CrossoverPairings>, byeEntrants: Team[] }}
  */
-export function buildLevel3QuarterFinalFixtures(teams, allMatches) {
+export function buildLevel3FirstRoundPlan(teams, allMatches) {
   const { l2Winners, s2Top } = partitionLevel3Entrants(teams);
-  return generateLevel3CrossoverPairings(l2Winners, s2Top, allMatches, {
+  const plan = buildLevel3CrossoverRound(l2Winners, s2Top, allMatches, {
     stage: 'L3',
     roundType: 'Level 3',
     labelPrefix: 'L3-QF',
   });
+
+  const semifinalTeams = plan.byeEntrants.length + plan.fixtures.length;
+  if (semifinalTeams !== PYRAMID_SEMIFINAL_TEAM_COUNT) {
+    throw new Error(
+      `Level 3 crossover must produce exactly ${PYRAMID_SEMIFINAL_TEAM_COUNT} semi-final teams (got ${semifinalTeams}: ${plan.byeEntrants.length} bye(s) + ${plan.fixtures.length} match(es)).`
+    );
+  }
+
+  return plan;
 }
 
 /**
- * @param {Match[]} quarterFinalMatches — 4 completed L3 QF matches
+ * @param {Team[]} teams — L3 entrants
+ * @param {Match[]} allMatches
  */
-export function buildLevel3SemiFinalFixtures(quarterFinalMatches) {
-  const ordered = getLevel3QuarterFinalMatches(quarterFinalMatches)
-    .sort((a, b) => (a.stage_sequence ?? 0) - (b.stage_sequence ?? 0))
-    .slice(0, 4);
-  if (ordered.length !== 4) {
-    throw new Error(`Level 3 semi-finals require exactly 4 quarter-final matches (got ${ordered.length})`);
-  }
-  const winners = ordered.map((m) => ({
-    id: m.winner_team_id,
-    team_name: m.winner_team_id === m.team1_id ? m.team1_name : m.team2_name,
-  }));
+export function buildLevel3QuarterFinalFixtures(teams, allMatches) {
+  return buildLevel3FirstRoundPlan(teams, allMatches).fixtures;
+}
 
-  return [
-    {
-      label: 'SF1',
-      team1_id: winners[0].id,
-      team2_id: winners[1].id,
-      team1: winners[0],
-      team2: winners[1],
-      round_type: 'Semi Final',
-      pyramid_stage: 'L3',
-      stage_sequence: 0,
-      pool: null,
-    },
-    {
-      label: 'SF2',
-      team1_id: winners[2].id,
-      team2_id: winners[3].id,
-      team1: winners[2],
-      team2: winners[3],
-      round_type: 'Semi Final',
-      pyramid_stage: 'L3',
-      stage_sequence: 1,
-      pool: null,
-    },
-  ];
+/**
+ * @param {Match[]} quarterFinalMatches — completed L3 first-round matches (may be empty when all byes)
+ * @param {Team[]} [byeEntrants] — teams that received a bye into semi-finals
+ */
+export function buildLevel3SemiFinalFixtures(quarterFinalMatches, byeEntrants = []) {
+  const ordered = getLevel3QuarterFinalMatches(quarterFinalMatches)
+    .filter((m) => m.status === 'Completed' && m.winner_team_id)
+    .sort((a, b) => (a.stage_sequence ?? 0) - (b.stage_sequence ?? 0));
+
+  const { winners } =
+    ordered.length > 0
+      ? getOrderedBracketResults(ordered, 'Level 3')
+      : { winners: [] };
+
+  if (winners.length + byeEntrants.length !== PYRAMID_SEMIFINAL_TEAM_COUNT) {
+    throw new Error(
+      `Level 3 semi-finals require exactly ${PYRAMID_SEMIFINAL_TEAM_COUNT} teams (got ${winners.length} winner(s) + ${byeEntrants.length} bye(s)).`
+    );
+  }
+
+  const pairings = buildSemiFinalPairingsFromRound(byeEntrants, winners);
+
+  return pairings.map((pairing, index) => ({
+    label: `SF${index + 1}`,
+    team1_id: pairing.team1.id,
+    team2_id: pairing.team2.id,
+    team1: pairing.team1,
+    team2: pairing.team2,
+    round_type: 'Semi Final',
+    pyramid_stage: 'L3',
+    stage_sequence: index,
+    pool: null,
+  }));
 }
 
 /**
@@ -321,8 +336,8 @@ export function buildFinalFixture(semiFinalMatches) {
   const ordered = getPyramidSemiFinalMatches(semiFinalMatches).sort(
     (a, b) => (a.stage_sequence ?? 0) - (b.stage_sequence ?? 0)
   );
-  if (ordered.length < 2) {
-    throw new Error('Final requires two completed semi-final matches');
+  if (ordered.length !== 2) {
+    throw new Error(`Final requires exactly 2 completed semi-final matches (got ${ordered.length})`);
   }
   const winners = ordered.map((m) => ({
     id: m.winner_team_id,
@@ -396,9 +411,9 @@ export function derivePyramidTournamentStatus(matches, _partialConfig = {}) {
   const l3Qf = getLevel3QuarterFinalMatches(matches);
   const l3Sf = getPyramidSemiFinalMatches(matches);
   const l3QfDone =
-    l3Qf.length >= 4 && l3Qf.every((m) => m.status === 'Completed' && m.winner_team_id);
+    l3Qf.length > 0 && l3Qf.every((m) => m.status === 'Completed' && m.winner_team_id);
   const l3SfDone =
-    l3Sf.length >= 2 && l3Sf.every((m) => m.status === 'Completed' && m.winner_team_id);
+    l3Sf.length >= 1 && l3Sf.every((m) => m.status === 'Completed' && m.winner_team_id);
 
   if (!l3QfDone) return 'Level 3 Active';
   if (l3Sf.length === 0) return 'Level 3 Complete';

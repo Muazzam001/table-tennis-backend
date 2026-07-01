@@ -2,7 +2,7 @@
 /** @typedef {import('./groupAssignment.js').TieredTeam} TieredTeam */
 /** @typedef {import('./groupAssignment.js').BalancedS1Group} BalancedS1Group */
 
-import { assignBalancedS1Groups, partitionTeamsByTier } from './groupAssignment.js';
+import { assignS1Groups, partitionTeamsByTier } from './groupAssignment.js';
 import { normalizeTierPyramidConfig, validateTierPyramidSetup } from './config.js';
 import { roundRobinMatchCount } from './config.js';
 import { buildRoundRobinRounds } from '../../roundRobinScheduling.js';
@@ -100,12 +100,7 @@ export function buildTierPyramidLevel1Fixtures(participants, partialConfig = {},
   }
 
   const { tier1, tier2, tier3 } = partitionTeamsByTier(participants);
-  const s1Groups = assignBalancedS1Groups(
-    tier2,
-    tier3,
-    config.s1GroupCount,
-    options.random ?? Math.random
-  );
+  const s1Groups = assignS1Groups(tier2, tier3, config.s1GroupCount, options.random ?? Math.random);
   const s1Fixtures = generateS1Matches(s1Groups);
   const s2Fixtures = generateS2Matches(tier1);
 

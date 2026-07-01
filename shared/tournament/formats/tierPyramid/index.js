@@ -5,6 +5,10 @@
 
 import {
   DEFAULT_TIER_PYRAMID_CONFIG,
+  PYRAMID_SEMIFINAL_TEAM_COUNT,
+  PYRAMID_FINALIST_COUNT,
+  getPyramidSemifinalEntrantCount,
+  validatePyramidKnockoutFinaleRules,
   getDefaultTierPyramidConfig,
   normalizeTierPyramidConfig,
   validateTierPyramidConfig,
@@ -12,11 +16,19 @@ import {
   validateTierPyramidSetup,
   getTierPyramidSetupOptions,
   countTierPyramidMatches,
+  countS1RoundRobinMatches,
   roundRobinMatchCount,
+  suggestTierPyramidConfigs,
+  deriveTierPyramidConfigFromTierCounts,
+  deriveTierPyramidConfigFromAssignments,
+  resolveTierPyramidConfigForAssignments,
+  countTiersFromAssignments,
+  getTierPyramidSetupFromRoster,
 } from './config.js';
 import {
   buildLevel2Fixtures,
   buildLevel3QuarterFinalFixtures,
+  buildLevel3FirstRoundPlan,
   buildLevel3SemiFinalFixtures,
   buildFinalFixture,
   buildThirdPlaceFixture,
@@ -88,6 +100,10 @@ export const tierPyramidStrategy = {
 
 export {
   DEFAULT_TIER_PYRAMID_CONFIG,
+  PYRAMID_SEMIFINAL_TEAM_COUNT,
+  PYRAMID_FINALIST_COUNT,
+  getPyramidSemifinalEntrantCount,
+  validatePyramidKnockoutFinaleRules,
   getDefaultTierPyramidConfig,
   normalizeTierPyramidConfig,
   validateTierPyramidConfig,
@@ -95,10 +111,19 @@ export {
   validateTierPyramidSetup,
   getTierPyramidSetupOptions,
   countTierPyramidMatches,
+  countS1RoundRobinMatches,
   roundRobinMatchCount,
+  suggestTierPyramidConfigs,
+  deriveTierPyramidConfigFromTierCounts,
+  deriveTierPyramidConfigFromAssignments,
+  resolveTierPyramidConfigForAssignments,
+  countTiersFromAssignments,
+  getTierPyramidSetupFromRoster,
 };
 export {
   assignBalancedS1Groups,
+  assignImbalancedS1Groups,
+  assignS1Groups,
   partitionTeamsByTier,
   serpentineDistribute,
 } from './groupAssignment.js';
@@ -121,17 +146,28 @@ export {
   getS1GroupsFromMatches,
   buildLevel2Fixtures,
   buildLevel3QuarterFinalFixtures,
+  buildLevel3FirstRoundPlan,
   buildLevel3SemiFinalFixtures,
   buildFinalFixture,
   buildThirdPlaceFixture,
   tryBuildThirdPlaceFixture,
 } from './advancement.js';
 export {
+  buildCrossoverRoundWithByes,
+  buildFirstKnockoutRoundWithByes,
+  buildSemiFinalPairingsFromRound,
+  crossoverPairingSlots,
+  nextPowerOfTwo,
+  seededBracketSlots,
+} from './bracket.js';
+export {
   rankEntrantsByCumulativeWins,
   generateSeededBracketPairings,
   getOrderedBracketResults,
   generateLevel2CrossoverPairings,
   generateLevel3CrossoverPairings,
+  buildLevel3CrossoverRound,
+  buildPyramidCrossoverRound,
   partitionLevel2Entrants,
   partitionLevel3Entrants,
 } from './seeding.js';
