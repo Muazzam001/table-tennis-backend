@@ -38,7 +38,10 @@ export function getGamePointRules(format = DEFAULT_GAME_POINTS_PER_SET) {
     pointsToWin: 11,
     deuceThreshold: 10,
     maxSetScore: 22,
-    knockoutPatterns: [{ minWinner: 6, maxLoser: 0 }],
+    knockoutPatterns: [
+      { minWinner: 6, maxLoser: 0 },
+      { minWinner: 9, maxLoser: 1 },
+    ],
     shutoutLoserMax: 3,
     highMarginMin: 5,
     normalMarginMin: 3,
@@ -116,6 +119,10 @@ export function isValidSetGameScore(team1Points, team2Points, format = DEFAULT_G
   const winner = Math.max(team1, team2);
   const loser = Math.min(team1, team2);
 
+  // Knockout / early-finish sets (e.g. 6-0, 9-1) end before the winner reaches the
+  // full game points, so they bypass the reach-the-target and lead-by-2 checks.
+  if (isKnockoutSet(winner, loser, format)) return true;
+
   if (winner < rules.pointsToWin) return false;
   if (winner - loser < 2) return false;
 
@@ -181,7 +188,7 @@ export function getSetScoreValidationMessage(team1Points, team2Points, format = 
   }
 
   if (loser >= rules.deuceThreshold && winner - loser < 2) {
-    return `Deuce set — winner must lead by 2 (e.g. ${rules.deuceThreshold + 2}-${rules.deuceThreshold}, ${rules.deuceThreshold + 3}-${rules.deuceThreshold + 1}).`;
+    return `Deuce set - winner must lead by 2 (e.g. ${rules.deuceThreshold + 2}-${rules.deuceThreshold}, ${rules.deuceThreshold + 3}-${rules.deuceThreshold + 1}).`;
   }
 
   if (winner - loser < 2) {
