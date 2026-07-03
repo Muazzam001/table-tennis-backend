@@ -125,12 +125,19 @@ export async function assignTiers(db, division, assignments, formatConfig = null
   try {
     await connection.beginTransaction();
 
-    for (const { teamId, tier } of tierAssignments) {
+    // Batch UPDATE using CASE to avoid N queries
+    if (tierAssignments.length > 0) {
+      const whenClauses = tierAssignments.map(() => 'WHEN id = ? THEN ?').join(' ');
+      const params = tierAssignments.flatMap(({ teamId, tier }) => [teamId, tier]);
+      params.push(division);
       await connection.execute(
         `UPDATE teams
-         SET tier = ?, pyramid_stage = 'registered', pyramid_status = 'active', advancement_source = NULL
-         WHERE id = ? AND division = ?`,
-        [tier, teamId, division]
+         SET tier = CASE ${whenClauses} END,
+             pyramid_stage = 'registered',
+             pyramid_status = 'active',
+             advancement_source = NULL
+         WHERE id IN (${tierAssignments.map(a => a.teamId).join(',')}) AND division = ?`,
+        params
       );
     }
 

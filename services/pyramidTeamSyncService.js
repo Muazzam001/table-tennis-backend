@@ -135,15 +135,19 @@ export async function syncPyramidTeamsFromPlayers(db, division, options = {}) {
   let tierState = null;
   let tierAssignError = null;
   try {
+    // Multi-row INSERT to create all teams in one query
+    const values = pyramidPlayers.map(() => '(?, ?, NULL, ?)').join(',');
+    const params = pyramidPlayers.flatMap(row => [row.name, row.id, division]);
+    const [result] = await db.execute(
+      `INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES ${values}`,
+      params
+    );
+    const firstId = result.insertId;
     /** @type {{ teamId: number, tier: number }[]} */
-    const tierAssignments = [];
-    for (const row of pyramidPlayers) {
-      const [result] = await db.execute(
-        `INSERT INTO teams (team_name, player1_id, player2_id, division) VALUES (?, ?, NULL, ?)`,
-        [row.name, row.id, division]
-      );
-      tierAssignments.push({ teamId: result.insertId, tier: row.tier });
-    }
+    const tierAssignments = pyramidPlayers.map((row, i) => ({
+      teamId: firstId + i,
+      tier: row.tier,
+    }));
 
     await db.execute(
       `UPDATE teams t

@@ -12,6 +12,9 @@ const DEFAULT_TOURNAMENT_FORMAT = 'groups';
 
 const VALID_TOURNAMENT_FORMATS = ['groups', 'single-group', 'pools-2', 'tier-pyramid'];
 
+// Module-level flag: schema init only needs to run once per process start.
+let _schemaInitialized = false;
+
 const TEAM_SELECT = `
   SELECT
     t.id,
@@ -36,17 +39,21 @@ const TEAM_SELECT = `
  * @param {import('mysql2/promise').Pool} db
  */
 export async function ensureDivisionSettingsTable(db) {
+  if (_schemaInitialized) return;
   await ensureDivisionSchema(db);
   await ensureTierPyramidSchema(db);
   await ensureMatchSchema(db);
 
-  for (const division of VALID_DIVISIONS) {
-    await db.execute(
-      `INSERT INTO division_settings (division, competition_format) VALUES (?, ?)
-       ON CONFLICT (division) DO NOTHING`,
-      [division, DEFAULT_FORMAT]
-    );
-  }
+  await Promise.all(
+    VALID_DIVISIONS.map((division) =>
+      db.execute(
+        `INSERT INTO division_settings (division, competition_format) VALUES (?, ?)
+         ON CONFLICT (division) DO NOTHING`,
+        [division, DEFAULT_FORMAT]
+      )
+    )
+  );
+  _schemaInitialized = true;
 }
 
 /**

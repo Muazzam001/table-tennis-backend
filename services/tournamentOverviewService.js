@@ -45,8 +45,11 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
       }
     }
 
-    const matches = await getDivisionMatches(db, division);
-    const tierState = await getTierAssignments(db, division);
+    const [matches, tierState, progressionLog] = await Promise.all([
+      getDivisionMatches(db, division),
+      getTierAssignments(db, division),
+      getPyramidProgressionLog(db, division, 50),
+    ]);
     const config = tierState.config;
     const teams = tierState.teams.map((t) => ({ id: t.id, team_name: t.team_name, tier: t.tier }));
     const s1Groups = getS1GroupsFromMatches(matches, teams);
@@ -69,7 +72,6 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
         : [];
 
     const status = derivePyramidTournamentStatus(matches, config);
-    const progressionLog = await getPyramidProgressionLog(db, division, 50);
 
     return {
       division,
@@ -100,8 +102,12 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
     }
   }
 
-  const matches = await getDivisionMatches(db, division);
-  const groups = await getGroupsFromMatches(db, division);
+  const [matches, groups, playerCount, [teamRows]] = await Promise.all([
+    getDivisionMatches(db, division),
+    getGroupsFromMatches(db, division),
+    countPlayersForDivision(db, division),
+    db.execute('SELECT COUNT(*) as count FROM teams WHERE division = ?', [division]),
+  ]);
   const groupOrder = Object.keys(groups).sort();
   const format = detectFormat(matches, groups);
   const teamCount =
@@ -132,11 +138,6 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
   const status = deriveTournamentStatus(matches, { format, teamCount });
   const bracket = buildKnockoutBracket(matches, format);
 
-  const playerCount = await countPlayersForDivision(db, division);
-  const [teamRows] = await db.execute(
-    'SELECT COUNT(*) as count FROM teams WHERE division = ?',
-    [division]
-  );
   const setupOptions = getTournamentSetupOptions(sqlCount(teamRows), playerCount);
 
   return {

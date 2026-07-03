@@ -55,42 +55,62 @@ async function applyAdvancementUpdates(
   adminUserId = null,
   notes = null
 ) {
-  for (const update of updates) {
-    const [rows] = await db.execute(
-      'SELECT pyramid_stage, pyramid_status FROM teams WHERE id = ? AND division = ?',
-      [update.teamId, division]
-    );
-    if (!rows.length) continue;
+  if (updates.length === 0) return;
 
-    const fromStage = rows[0].pyramid_stage || update.fromStage;
-    const fromStatus = rows[0].pyramid_status || update.fromStatus;
+  // Batch-fetch current state for all teams
+  const teamIds = updates.map(u => u.teamId);
+  const [rows] = await db.execute(
+    `SELECT id, pyramid_stage, pyramid_status FROM teams WHERE id IN (${teamIds.map(() => '?').join(',')}) AND division = ?`,
+    [...teamIds, division]
+  );
+  const teamStateMap = new Map(rows.map(r => [r.id, r]));
 
-    await db.execute(
-      `UPDATE teams
-       SET pyramid_stage = ?, pyramid_status = ?, advancement_source = ?
-       WHERE id = ? AND division = ?`,
-      [update.toStage, update.toStatus, update.source, update.teamId, division]
-    );
+  const validUpdates = updates.filter(u => teamStateMap.has(u.teamId));
+  if (validUpdates.length === 0) return;
 
-    await db.execute(
-      `INSERT INTO tournament_progression_log (
-        division, team_id, from_stage, to_stage, from_status, to_status,
-        reason, triggered_by_match_id, admin_user_id, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        division,
-        update.teamId,
-        fromStage,
-        update.toStage,
-        fromStatus,
-        update.toStatus,
-        reason,
-        triggeredByMatchId,
-        adminUserId,
-        notes,
-      ]
-    );
-  }
+  // Bulk UPDATE using CASE
+  const stageClauses = validUpdates.map(() => 'WHEN id = ? THEN ?').join(' ');
+  const statusClauses = validUpdates.map(() => 'WHEN id = ? THEN ?').join(' ');
+  const sourceClauses = validUpdates.map(() => 'WHEN id = ? THEN ?').join(' ');
+  const updateParams = [
+    ...validUpdates.flatMap(u => [u.teamId, u.toStage]),
+    ...validUpdates.flatMap(u => [u.teamId, u.toStatus]),
+    ...validUpdates.flatMap(u => [u.teamId, u.source]),
+    division,
+  ];
+  await db.execute(
+    `UPDATE teams
+     SET pyramid_stage   = CASE ${stageClauses} END,
+         pyramid_status  = CASE ${statusClauses} END,
+         advancement_source = CASE ${sourceClauses} END
+     WHERE id IN (${teamIds.join(',')}) AND division = ?`,
+    updateParams
+  );
+
+  // Bulk INSERT progression log
+  const logValues = validUpdates.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+  const logParams = validUpdates.flatMap(u => {
+    const state = teamStateMap.get(u.teamId);
+    return [
+      division,
+      u.teamId,
+      state.pyramid_stage || u.fromStage,
+      u.toStage,
+      state.pyramid_status || u.fromStatus,
+      u.toStatus,
+      reason,
+      triggeredByMatchId,
+      adminUserId,
+      notes,
+    ];
+  });
+  await db.execute(
+    `INSERT INTO tournament_progression_log (
+      division, team_id, from_stage, to_stage, from_status, to_status,
+      reason, triggered_by_match_id, admin_user_id, notes
+    ) VALUES ${logValues}`,
+    logParams
+  );
 }
 
 /**

@@ -97,82 +97,48 @@ const safeQuery = async (query, params = [], defaultValue = 0) => {
 // Get dashboard statistics (overview stats for homepage)
 export const getDashboardStats = async (req, res, next) => {
   try {
-    // Get total active players (with error handling)
-    const playerCountResult = await safeQuery(
-      'SELECT COUNT(*) as count FROM players WHERE is_active = TRUE',
-      [],
-      0
-    );
-    const totalPlayersValue = playerCountResult && playerCountResult[0] ? Number(playerCountResult[0].count) : 0;
-    
-    // Get total teams (with error handling)
-    const teamCountResult = await safeQuery(
-      'SELECT COUNT(*) as count FROM teams',
-      [],
-      0
-    );
-    const totalTeamsValue = teamCountResult && teamCountResult[0] ? Number(teamCountResult[0].count) : 0;
-    
-    // Get total matches (with error handling)
-    const matchCountResult = await safeQuery(
-      'SELECT COUNT(*) as count FROM matches',
-      [],
-      0
-    );
-    const totalMatchesValue = matchCountResult && matchCountResult[0] ? Number(matchCountResult[0].count) : 0;
-    
-    // Get completed matches (with error handling)
-    const completedMatchesResult = await safeQuery(
-      "SELECT COUNT(*) as count FROM matches WHERE status = 'Completed'",
-      [],
-      0
-    );
-    const completedMatchesValue = completedMatchesResult && completedMatchesResult[0] ? Number(completedMatchesResult[0].count) : 0;
-    
-    // Get upcoming matches (with error handling)
-    const upcomingMatchesResult = await safeQuery(
-      "SELECT COUNT(*) as count FROM matches WHERE status != 'Completed' OR status IS NULL",
-      [],
-      0
-    );
-    const upcomingMatchesValue = upcomingMatchesResult && upcomingMatchesResult[0] ? Number(upcomingMatchesResult[0].count) : 0;
-    
-    // Get players by expertise level (with error handling)
-    let expertiseStats = [];
-    try {
-      [expertiseStats] = await pool.execute(
-        `SELECT 
-          expertise_level, 
-          COUNT(*) as count 
-        FROM players 
-        WHERE is_active = TRUE 
-        GROUP BY expertise_level`
-      );
-    } catch (error) {
-      if (isMissingTableError(error)) {
-        expertiseStats = [];
-      } else {
-        throw error;
-      }
-    }
-    
-    // Get matches by round type (with error handling)
-    let roundStats = [];
-    try {
-      [roundStats] = await pool.execute(
-        `SELECT 
-          round_type, 
-          COUNT(*) as count 
-        FROM matches 
-        GROUP BY round_type`
-      );
-    } catch (error) {
-      if (isMissingTableError(error)) {
-        roundStats = [];
-      } else {
-        throw error;
-      }
-    }
+    // Run all queries in parallel: combined counts + expertise breakdown + round breakdown
+    const [countsResult, expertiseResult, roundResult] = await Promise.allSettled([
+      safeQuery(
+        `SELECT
+          (SELECT COUNT(*) FROM players WHERE is_active = TRUE) AS total_players,
+          (SELECT COUNT(*) FROM teams)                          AS total_teams,
+          (SELECT COUNT(*) FROM matches)                        AS total_matches,
+          (SELECT COUNT(*) FROM matches WHERE status = 'Completed') AS completed_matches,
+          (SELECT COUNT(*) FROM matches WHERE status != 'Completed' OR status IS NULL) AS upcoming_matches`,
+        [],
+        null
+      ),
+      pool
+        .execute(
+          `SELECT expertise_level, COUNT(*) as count FROM players WHERE is_active = TRUE GROUP BY expertise_level`
+        )
+        .catch((error) => {
+          if (isMissingTableError(error)) return [[]];
+          throw error;
+        }),
+      pool
+        .execute(`SELECT round_type, COUNT(*) as count FROM matches GROUP BY round_type`)
+        .catch((error) => {
+          if (isMissingTableError(error)) return [[]];
+          throw error;
+        }),
+    ]);
+
+    const countsRow =
+      countsResult.status === 'fulfilled' && countsResult.value?.[0]
+        ? countsResult.value[0]
+        : {};
+    const totalPlayersValue  = Number(countsRow.total_players)      || 0;
+    const totalTeamsValue    = Number(countsRow.total_teams)         || 0;
+    const totalMatchesValue  = Number(countsRow.total_matches)       || 0;
+    const completedMatchesValue = Number(countsRow.completed_matches) || 0;
+    const upcomingMatchesValue  = Number(countsRow.upcoming_matches)  || 0;
+
+    const expertiseStats =
+      expertiseResult.status === 'fulfilled' ? expertiseResult.value[0] ?? [] : [];
+    const roundStats =
+      roundResult.status === 'fulfilled' ? roundResult.value[0] ?? [] : [];
     
     console.log('Dashboard stats calculated:', {
       totalPlayers: totalPlayersValue,
