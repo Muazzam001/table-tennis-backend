@@ -432,13 +432,20 @@ export function calculateGroupStandings(teams, groupMatches, options = {}) {
     const teamMatches = roundMatches.filter(
       (m) => m.team1_id === team.id || m.team2_id === team.id
     );
-    const played = teamMatches.filter((m) => m.status === 'Completed' && m.winner_team_id);
+    const played = teamMatches.filter(
+      (m) => m.status === 'Completed' && (m.winner_team_id || m.is_abandoned)
+    );
 
     let points = 0;
     let wins = 0;
     let losses = 0;
 
     for (const match of played) {
+      // Match abandoned with no winner (both teams unavailable): award 1 point to each team.
+      if (match.is_abandoned && !match.winner_team_id) {
+        points += 1;
+        continue;
+      }
       if (match.winner_team_id === team.id) {
         wins += 1;
         points += match.is_abandoned ? 1 : 2;
