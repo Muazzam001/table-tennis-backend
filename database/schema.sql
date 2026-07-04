@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS division_settings (
     competition_format ENUM('doubles', 'singles') NOT NULL DEFAULT 'doubles',
     tournament_format ENUM('groups', 'single-group', 'pools-2', 'tier-pyramid') NOT NULL DEFAULT 'groups',
     format_config JSON NULL COMMENT 'Tier sizes, group count, qualifiers, etc.',
+    level1b_status ENUM('waiting', 'ready', 'active', 'complete')
+        NOT NULL DEFAULT 'waiting'
+        COMMENT 'Stage gate for Level 1B (between S1 and Level 2)',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -44,7 +47,7 @@ CREATE TABLE IF NOT EXISTS teams (
     division ENUM('Men', 'Women') NOT NULL,
     tier TINYINT UNSIGNED NULL COMMENT '1, 2, or 3 for tier-pyramid',
     pyramid_stage ENUM(
-        'registered', 'S1', 'S2', 'L2', 'L3', 'final', 'champion', 'eliminated'
+        'registered', 'S1', 'S2', 'L1B', 'L2', 'L3', 'final', 'champion', 'eliminated'
     ) NULL,
     pyramid_status ENUM('active', 'advanced', 'eliminated', 'withdrawn') NULL DEFAULT 'active',
     advancement_source VARCHAR(50) NULL COMMENT 'e.g. S1-A1, S2-top, L2-win',
@@ -72,10 +75,10 @@ CREATE TABLE IF NOT EXISTS matches (
     status ENUM('Scheduled', 'In Progress', 'Completed', 'Cancelled') DEFAULT 'Scheduled',
     round_type ENUM(
         'Qualifying', 'Quarter Final', 'Semi Final', 'Final', 'Third Place',
-        'S1', 'S2', 'Level 2', 'Level 3'
+        'S1', 'S2', 'Level 1B', 'Level 2', 'Level 3'
     ) DEFAULT 'Qualifying',
     pool VARCHAR(15) NULL COMMENT 'Group id for qualifying (A-Z). NULL for knockout rounds.',
-    pyramid_stage ENUM('S1', 'S2', 'L2', 'L3', 'Final') NULL,
+    pyramid_stage ENUM('S1', 'S2', 'L1B', 'L2', 'L3', 'Final') NULL,
     stage_sequence INT NULL COMMENT 'Bracket slot index within stage',
     division ENUM('Men', 'Women') NOT NULL,
     winner_team_id INT NULL,

@@ -263,12 +263,16 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
 
     if (existingCount > 0 && replaceExisting) {
       await connection.execute(
-        `DELETE FROM matches WHERE division = ? AND round_type IN ('S1', 'S2')`,
+        `DELETE FROM matches WHERE division = ? AND round_type IN ('S1', 'S2', 'Level 1B')`,
         [division]
       );
       await connection.execute(
         `UPDATE teams SET pyramid_stage = 'registered', pyramid_status = 'active', advancement_source = NULL
          WHERE division = ? AND tier IS NOT NULL`,
+        [division]
+      );
+      await connection.execute(
+        `UPDATE division_settings SET level1b_status = 'waiting' WHERE division = ?`,
         [division]
       );
     }
@@ -320,6 +324,10 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
     }
 
     await setTournamentFormat(connection, division, 'tier-pyramid', config);
+    await connection.execute(
+      `UPDATE division_settings SET level1b_status = 'waiting' WHERE division = ?`,
+      [division]
+    );
 
     await connection.commit();
   } catch (error) {

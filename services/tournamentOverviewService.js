@@ -23,7 +23,9 @@ import { resolveDivisionParam } from '@shared/tournament/divisions.js';
 import { isTierPyramidFormat } from '@shared/tournament/formats/registry.js';
 import {
   derivePyramidTournamentStatus,
+  deriveLevel1bStatus,
   getS1GroupsFromMatches,
+  rankEntrantsByRoundTypes,
 } from '@shared/tournament/formats/tierPyramid/index.js';
 
 /**
@@ -71,7 +73,27 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
           )
         : [];
 
-    const status = derivePyramidTournamentStatus(matches, config);
+    const l1bEntrants = tierState.teams.filter(
+      (t) => t.pyramid_stage === 'L1B' || t.advancement_source?.startsWith('S1-')
+    );
+    const l1bStandings = l1bEntrants.length
+      ? rankEntrantsByRoundTypes(
+          l1bEntrants.map((t) => ({ id: t.id, team_name: t.team_name })),
+          matches,
+          ['S1', 'Level 1B']
+        ).map((row) => {
+          const entrant = tierState.teams.find((t) => t.id === row.id);
+          const sourceMatch = entrant?.advancement_source?.match(/^S1-([A-Z])-(\d+)$/);
+          return {
+            ...row,
+            sourceGroup: sourceMatch ? sourceMatch[1] : null,
+            groupRank: sourceMatch ? Number(sourceMatch[2]) : null,
+          };
+        })
+      : [];
+
+    const level1bStatus = deriveLevel1bStatus(matches, divisionSettings);
+    const status = derivePyramidTournamentStatus(matches, config, { level1bStatus });
 
     return {
       division,
@@ -86,6 +108,8 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
         s1Groups: Object.entries(s1Groups).map(([id, poolTeams]) => ({ id, teams: poolTeams })),
         standings,
         s2Standings,
+        l1bStandings,
+        level1bStatus,
         progressionLog,
       },
       groups: Object.entries(s1Groups).map(([id, poolTeams]) => ({ id, teams: poolTeams })),

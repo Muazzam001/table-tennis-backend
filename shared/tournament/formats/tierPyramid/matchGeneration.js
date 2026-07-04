@@ -13,7 +13,7 @@ import { buildRoundRobinRounds } from '../../roundRobinScheduling.js';
  *   team2_id: number,
  *   pool: string | null,
  *   round_type: string,
- *   pyramid_stage: 'S1' | 'S2' | 'L2' | 'L3' | 'Final',
+ *   pyramid_stage: 'S1' | 'S2' | 'L1B' | 'L2' | 'L3' | 'Final',
  *   stage_sequence?: number | null,
  * }} PyramidFixture
  */

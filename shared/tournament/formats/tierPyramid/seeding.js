@@ -15,8 +15,7 @@ export function rankEntrantsByCumulativeWins(entrants, allMatches) {
   const entrantIds = new Set(entrants.map((t) => t.id));
   const relevant = allMatches.filter(
     (m) =>
-      entrantIds.has(m.team1_id) &&
-      entrantIds.has(m.team2_id) &&
+      (entrantIds.has(m.team1_id) || entrantIds.has(m.team2_id)) &&
       m.status === 'Completed' &&
       m.winner_team_id
   );
@@ -24,20 +23,40 @@ export function rankEntrantsByCumulativeWins(entrants, allMatches) {
 }
 
 /**
- * Split Level 2 entrants into S1 group winners and S2 tier-1 drop-outs.
+ * Rank entrants using wins from specific round types.
+ * @param {Team[]} entrants
+ * @param {Match[]} allMatches
+ * @param {string[]} roundTypes
+ * @returns {StandingRow[]}
+ */
+export function rankEntrantsByRoundTypes(entrants, allMatches, roundTypes) {
+  const entrantIds = new Set(entrants.map((t) => t.id));
+  const relevant = allMatches.filter(
+    (m) =>
+      (entrantIds.has(m.team1_id) || entrantIds.has(m.team2_id)) &&
+      m.status === 'Completed' &&
+      m.winner_team_id &&
+      roundTypes.includes(m.round_type)
+  );
+  return calculateGroupStandings(entrants, relevant, { roundTypes });
+}
+
+/**
+ * Split Level 2 entrants into Level 1B qualifiers and S2 tier-1 drop-outs.
  * @param {Team[]} teams
  */
 export function partitionLevel2Entrants(teams) {
-  const s1Winners = teams.filter((t) => t.advancement_source?.startsWith('S1-'));
+  const l1bWinners = teams.filter((t) => t.advancement_source?.startsWith('L1B-adv-'));
   const s2Drops = teams.filter((t) => t.advancement_source?.startsWith('S2-drop-'));
 
-  if (s1Winners.length + s2Drops.length === teams.length) {
-    return { s1Winners, s2Drops };
+  if (l1bWinners.length + s2Drops.length === teams.length) {
+    return { l1bWinners, s2Drops, s1Winners: l1bWinners };
   }
 
   return {
-    s1Winners: teams.filter((t) => t.tier !== 1),
+    l1bWinners: teams.filter((t) => t.tier !== 1),
     s2Drops: teams.filter((t) => t.tier === 1),
+    s1Winners: teams.filter((t) => t.tier !== 1),
   };
 }
 
@@ -83,10 +102,13 @@ export function partitionLevel3Entrants(teams) {
 /**
  * @param {object[]} rankedPool
  * @param {Match[]} allMatches
- * @param {string} roundType
+ * @param {string} [roundType]
+ * @param {string[]} [roundTypes]
  */
-function rankPoolByAdvancementSource(rankedPool, allMatches, roundType) {
-  const ranked = rankEntrantsByCumulativeWins(rankedPool, allMatches);
+function rankPoolByAdvancementSource(rankedPool, allMatches, roundType, roundTypes) {
+  const ranked = roundTypes
+    ? rankEntrantsByRoundTypes(rankedPool, allMatches, roundTypes)
+    : rankEntrantsByCumulativeWins(rankedPool, allMatches);
   if (ranked.length === rankedPool.length) return ranked;
   return [...rankedPool].sort((a, b) => {
     const rankA = Number.parseInt(a.advancement_source?.match(/(\d+)$/)?.[1] ?? '999', 10);
@@ -105,9 +127,20 @@ function rankPoolByAdvancementSource(rankedPool, allMatches, roundType) {
  * @returns {PyramidKnockoutRoundPlan}
  */
 export function buildPyramidCrossoverRound(poolA, poolB, allMatches, options) {
-  const { stage, roundType, labelPrefix = 'KO-', rankRoundType = roundType } = options;
-  const rankedA = rankPoolByAdvancementSource(poolA, allMatches, rankRoundType);
-  const rankedB = rankPoolByAdvancementSource(poolB, allMatches, rankRoundType);
+  const { stage, roundType, labelPrefix = 'KO-', rankRoundType = roundType, rankRoundTypes } =
+    options;
+  const rankedA = rankPoolByAdvancementSource(
+    poolA,
+    allMatches,
+    rankRoundType,
+    rankRoundTypes
+  );
+  const rankedB = rankPoolByAdvancementSource(
+    poolB,
+    allMatches,
+    rankRoundType,
+    rankRoundTypes
+  );
   const { fixtures, byeEntrants } = buildCrossoverRoundWithByes(rankedA, rankedB);
 
   return {
@@ -142,18 +175,62 @@ export function generateLevel3CrossoverPairings(l2Winners, s2Top, allMatches, op
 }
 
 /**
- * Crossover pairings for Level 2: S1 group winners vs S2 tier-1 drop-outs.
- * @param {Team[]} s1Winners
+ * Crossover pairings for Level 2: Level 1B qualifiers vs S2 tier-1 drop-outs.
+ * @param {Team[]} l1bWinners
  * @param {Team[]} s2Drops
  * @param {Match[]} allMatches
  * @param {{ stage: string, roundType: string, labelPrefix?: string }} options
  * @returns {PyramidPairingFixture[]}
  */
-export function generateLevel2CrossoverPairings(s1Winners, s2Drops, allMatches, options) {
-  return buildPyramidCrossoverRound(s1Winners, s2Drops, allMatches, {
+export function generateLevel2CrossoverPairings(l1bWinners, s2Drops, allMatches, options) {
+  return buildPyramidCrossoverRound(l1bWinners, s2Drops, allMatches, {
     ...options,
-    rankRoundType: 'S1',
+    rankRoundTypes: ['S1', 'Level 1B'],
   }).fixtures;
+}
+
+/** Deterministic cross-group Level 1B pairings: A1 vs B2, B1 vs A2, C1 vs D2, D1 vs C2 */
+const LEVEL_1B_PAIRING_SLOTS = [
+  ['A', 1, 'B', 2],
+  ['B', 1, 'A', 2],
+  ['C', 1, 'D', 2],
+  ['D', 1, 'C', 2],
+];
+
+/**
+ * @param {Team[]} s1Qualifiers — teams with advancement_source S1-{pool}-{rank}
+ * @returns {PyramidPairingFixture[]}
+ */
+export function buildLevel1BPairings(s1Qualifiers) {
+  /** @type {Record<string, Team>} */
+  const slotMap = {};
+  for (const team of s1Qualifiers) {
+    const match = team.advancement_source?.match(/^S1-([A-Z])-(\d+)$/);
+    if (!match) continue;
+    slotMap[`${match[1]}-${match[2]}`] = team;
+  }
+
+  return LEVEL_1B_PAIRING_SLOTS.map((slot, index) => {
+    const [pool1, rank1, pool2, rank2] = slot;
+    const team1 = slotMap[`${pool1}-${rank1}`];
+    const team2 = slotMap[`${pool2}-${rank2}`];
+    if (!team1 || !team2) {
+      throw new Error(
+        `Missing Level 1B qualifier for slot ${pool1}${rank1} vs ${pool2}${rank2}`
+      );
+    }
+    return {
+      label: `L1B-${index + 1}`,
+      team1_id: team1.id,
+      team2_id: team2.id,
+      team1,
+      team2,
+      round_type: 'Level 1B',
+      pyramid_stage: 'L1B',
+      stage_sequence: index,
+      pool: null,
+    };
+  });
 }
 
 /**

@@ -13,6 +13,8 @@ import {
   partitionLevel2Entrants,
   partitionLevel3Entrants,
   rankEntrantsByCumulativeWins,
+  rankEntrantsByRoundTypes,
+  buildLevel1BPairings,
   getOrderedBracketResults,
 } from './seeding.js';
 import { buildSemiFinalPairingsFromRound } from './bracket.js';
@@ -30,19 +32,40 @@ import { getLevel3QuarterFinalMatches, getPyramidSemiFinalMatches } from './roun
  * }} AdvancementUpdate
  */
 
-const PYRAMID_ROUND_TYPES = ['S1', 'S2', 'Level 2', 'Level 3', 'Final'];
+const PYRAMID_ROUND_TYPES = ['S1', 'S2', 'Level 1B', 'Level 2', 'Level 3', 'Final'];
 
 /**
  * @param {Match[]} matches
- * @param {'S1' | 'S2' | 'L2' | 'Level 2' | 'L3' | 'Level 3' | 'Final'} stage
+ * @param {'S1' | 'S2' | 'L1B' | 'L2' | 'Level 2' | 'L3' | 'Level 3' | 'Final'} stage
  */
 export function isPyramidStageComplete(matches, stage) {
-  const roundType = stage === 'L2' ? 'Level 2' : stage === 'L3' ? 'Level 3' : stage;
+  const roundType =
+    stage === 'L2'
+      ? 'Level 2'
+      : stage === 'L3'
+        ? 'Level 3'
+        : stage === 'L1B'
+          ? 'Level 1B'
+          : stage;
   const stageMatches = matches.filter(
     (m) => m.round_type === roundType || m.pyramid_stage === stage
   );
   if (stageMatches.length === 0) return false;
   return stageMatches.every((m) => m.status === 'Completed' && m.winner_team_id);
+}
+
+/**
+ * @param {Match[]} matches
+ */
+export function isS1Complete(matches) {
+  return isPyramidStageComplete(matches, 'S1');
+}
+
+/**
+ * @param {Match[]} matches
+ */
+export function isLevel1BComplete(matches) {
+  return isPyramidStageComplete(matches, 'L1B');
 }
 
 /**
@@ -114,7 +137,7 @@ export function computeS1Advancement(matches, teams, partialConfig = {}) {
       winners.push({
         teamId: qualifying[i].id,
         fromStage: 'S1',
-        toStage: 'L2',
+        toStage: 'L1B',
         fromStatus: 'active',
         toStatus: 'advanced',
         source: `S1-${poolId}-${i + 1}`,
@@ -167,6 +190,77 @@ export function computeS2Advancement(matches, tier1Teams, partialConfig = {}) {
     }));
 
   return { toL3, toL2 };
+}
+
+/**
+ * @param {Match[]} matches
+ * @param {Team[]} teams
+ * @param {Partial<TierPyramidConfig>} [partialConfig]
+ * @returns {{ winners: AdvancementUpdate[], eliminated: AdvancementUpdate[] }}
+ */
+export function computeLevel1BAdvancement(matches, teams, partialConfig = {}) {
+  const config = normalizeTierPyramidConfig(partialConfig);
+  const l1bEntrants = teams.filter(
+    (t) => t.pyramid_stage === 'L1B' && t.advancement_source?.startsWith('S1-')
+  );
+  const l1bMatches = matches.filter((m) => m.round_type === 'Level 1B');
+
+  /** @type {Map<number, number>} */
+  const l1bWins = new Map();
+  for (const entrant of l1bEntrants) {
+    l1bWins.set(entrant.id, 0);
+  }
+  for (const match of l1bMatches) {
+    if (match.status === 'Completed' && match.winner_team_id) {
+      l1bWins.set(match.winner_team_id, (l1bWins.get(match.winner_team_id) || 0) + 1);
+    }
+  }
+
+  const cumulativeStandings = rankEntrantsByRoundTypes(l1bEntrants, matches, ['S1', 'Level 1B']);
+  const standingsById = Object.fromEntries(cumulativeStandings.map((row) => [row.id, row]));
+
+  const ranked = [...l1bEntrants].sort((a, b) => {
+    const winsA = l1bWins.get(a.id) || 0;
+    const winsB = l1bWins.get(b.id) || 0;
+    if (winsB !== winsA) return winsB - winsA;
+    const rankA = standingsById[a.id]?.rank ?? 999;
+    const rankB = standingsById[b.id]?.rank ?? 999;
+    if (rankA !== rankB) return rankA - rankB;
+    return a.id - b.id;
+  });
+
+  const advancing = ranked.slice(0, config.l1bAdvanceCount);
+  const out = ranked.slice(config.l1bAdvanceCount);
+
+  const winners = advancing.map((row, index) => ({
+    teamId: row.id,
+    fromStage: 'L1B',
+    toStage: 'L2',
+    fromStatus: 'active',
+    toStatus: 'advanced',
+    source: `L1B-adv-${index + 1}`,
+  }));
+
+  const eliminated = out.map((row) => ({
+    teamId: row.id,
+    fromStage: 'L1B',
+    toStage: 'eliminated',
+    fromStatus: 'active',
+    toStatus: 'eliminated',
+    source: null,
+  }));
+
+  return { winners, eliminated };
+}
+
+/**
+ * @param {Match[]} matches
+ * @param {Team[]} teams
+ * @returns {PyramidPairingFixture[]}
+ */
+export function buildLevel1BFixtures(teams) {
+  const s1Qualifiers = teams.filter((t) => t.advancement_source?.startsWith('S1-'));
+  return buildLevel1BPairings(s1Qualifiers);
 }
 
 /**
@@ -255,8 +349,8 @@ export function computeBracketStageAdvancement(matches, roundType, partialConfig
  * @param {Match[]} allMatches
  */
 export function buildLevel2Fixtures(teams, allMatches) {
-  const { s1Winners, s2Drops } = partitionLevel2Entrants(teams);
-  return generateLevel2CrossoverPairings(s1Winners, s2Drops, allMatches, {
+  const { l1bWinners, s2Drops } = partitionLevel2Entrants(teams);
+  return generateLevel2CrossoverPairings(l1bWinners, s2Drops, allMatches, {
     stage: 'L2',
     roundType: 'Level 2',
     labelPrefix: 'L2-',
@@ -390,19 +484,66 @@ export function tryBuildThirdPlaceFixture(semiFinalMatches) {
 }
 
 /**
+ * Derive Level 1B gate status from matches and stored division state.
+ * @param {Match[]} matches
+ * @param {{ level1b_status?: string }} [divisionSettings]
+ * @returns {import('../../types.ts').Level1bStatus}
+ */
+export function deriveLevel1bStatus(matches, divisionSettings = {}, teams = []) {
+  const stored = divisionSettings.level1b_status;
+  if (!isS1Complete(matches)) return 'waiting';
+  if (
+    stored === 'complete' ||
+    teams.some((t) => t.advancement_source?.startsWith('L1B-adv-'))
+  ) {
+    return 'complete';
+  }
+  if (hasRoundType(matches, 'Level 1B')) {
+    return 'active';
+  }
+  if (stored === 'ready' || stored === 'active') return stored;
+  if (teams.some((t) => t.advancement_source?.startsWith('S1-'))) return 'ready';
+  return 'waiting';
+}
+
+/**
  * @param {Match[]} matches
  * @param {Partial<TierPyramidConfig>} [partialConfig]
+ * @param {{ level1bStatus?: string }} [options]
  * @returns {PyramidTournamentStatus}
  */
-export function derivePyramidTournamentStatus(matches, _partialConfig = {}) {
+export function derivePyramidTournamentStatus(matches, _partialConfig = {}, options = {}) {
   const hasLevel1 = matches.some((m) => m.round_type === 'S1' || m.round_type === 'S2');
 
   if (!hasLevel1) return 'Draft';
 
-  const s1Done = isPyramidStageComplete(matches, 'S1');
-  const s2Done = isPyramidStageComplete(matches, 'S2');
-  if (!s1Done || !s2Done) return 'Level 1 Active';
-  if (!hasRoundType(matches, 'Level 2')) return 'Level 1 Complete';
+  const s1Done = isS1Complete(matches);
+  const l1bStatus =
+    options.level1bStatus ??
+    deriveLevel1bStatus(matches, { level1b_status: options.level1bStatus });
+  const hasL1B = hasRoundType(matches, 'Level 1B');
+  const l1bDone = isLevel1BComplete(matches);
+
+  if (!s1Done) return 'Level 1A Active';
+
+  const l1bGatePassed =
+    l1bDone ||
+    l1bStatus === 'complete' ||
+    hasRoundType(matches, 'Level 2') ||
+    hasRoundType(matches, 'Level 3') ||
+    hasRoundType(matches, 'Semi Final') ||
+    hasRoundType(matches, 'Final');
+
+  if (!l1bGatePassed) {
+    if (!hasL1B) {
+      if (l1bStatus === 'waiting') return 'Level 1B Waiting';
+      if (l1bStatus === 'ready') return 'Level 1B Ready';
+      return 'Level 1A Complete';
+    }
+    return 'Level 1B Active';
+  }
+
+  if (!hasRoundType(matches, 'Level 2')) return 'Level 1B Complete';
 
   const l2Done = isPyramidStageComplete(matches, 'Level 2');
   if (!l2Done) return 'Level 2 Active';

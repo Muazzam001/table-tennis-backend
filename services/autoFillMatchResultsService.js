@@ -7,7 +7,7 @@ import { tryAutoProgressKnockout } from './matchProgressionService.js';
 import { tryAutoProgressTierPyramid } from './tierPyramidProgressionService.js';
 
 const GROUP_ROUND_ORDER = ['Qualifying', 'Quarter Final', 'Semi Final', 'Third Place', 'Final'];
-const PYRAMID_ROUND_ORDER = ['S1', 'S2', 'Level 2', 'Level 3', 'Semi Final', 'Third Place', 'Final'];
+const PYRAMID_ROUND_ORDER = ['S1', 'S2', 'Level 1B', 'Level 2', 'Level 3', 'Semi Final', 'Third Place', 'Final'];
 
 /**
  * @param {{ round_type: string, stage_sequence?: number | null, id: number }} match

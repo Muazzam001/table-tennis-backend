@@ -8,10 +8,11 @@ import {
   getPyramidProgressionLog,
   overridePyramidAdvancement,
   regeneratePyramidStage,
+  activateLevel1B,
 } from '../services/tierPyramidProgressionService.js';
 import { rejectInvalidDivision } from '../utils/divisionParam.js';
 
-const REGENERATE_FROM_STAGES = ['Level 1', 'S1', 'S2', 'Level 2', 'Level 3', 'Final'];
+const REGENERATE_FROM_STAGES = ['Level 1', 'S1', 'S2', 'Level 1B', 'Level 2', 'Level 3', 'Final'];
 
 export const getPyramidTiers = async (req, res, next) => {
   try {
@@ -141,6 +142,29 @@ export const regeneratePyramidStageHandler = async (req, res, next) => {
     res.json({
       success: true,
       message: `Pyramid regenerated from ${fromStage}`,
+      data,
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
+    next(error);
+  }
+};
+
+export const activateLevel1BHandler = async (req, res, next) => {
+  try {
+    const { division: rawDivision } = req.body;
+    if (!rawDivision) {
+      return res.status(400).json({ success: false, message: 'Division is required' });
+    }
+    const division = rejectInvalidDivision(res, rawDivision);
+    if (division === undefined) return;
+
+    const data = await activateLevel1B(pool, division);
+    res.json({
+      success: true,
+      message: `Level 1B activated (${data.matchesCreated} matches)`,
       data,
     });
   } catch (error) {

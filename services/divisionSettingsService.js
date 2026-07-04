@@ -72,7 +72,7 @@ export async function getCompetitionFormat(db, division) {
 export async function getDivisionSettings(db, division) {
   await ensureDivisionSettingsTable(db);
   const [rows] = await db.execute(
-    `SELECT division, competition_format, tournament_format, format_config, updated_at
+    `SELECT division, competition_format, tournament_format, format_config, level1b_status, updated_at
      FROM division_settings WHERE division = ?`,
     [division]
   );
@@ -90,6 +90,7 @@ export async function getDivisionSettings(db, division) {
     competition_format: row?.competition_format || DEFAULT_FORMAT,
     tournament_format: row?.tournament_format || DEFAULT_TOURNAMENT_FORMAT,
     format_config: formatConfig,
+    level1b_status: row?.level1b_status ?? 'waiting',
     updated_at: row?.updated_at ?? null,
   };
 }
@@ -138,7 +139,7 @@ export async function setTournamentFormat(db, division, tournamentFormat, format
 export async function getAllDivisionSettings(db) {
   await ensureDivisionSettingsTable(db);
   const [rows] = await db.execute(
-    `SELECT division, competition_format, tournament_format, format_config, updated_at
+    `SELECT division, competition_format, tournament_format, format_config, level1b_status, updated_at
      FROM division_settings
      ORDER BY CASE division WHEN 'Men' THEN 1 WHEN 'Women' THEN 2 ELSE 3 END`
   );

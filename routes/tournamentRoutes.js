@@ -16,6 +16,7 @@ import {
   getPyramidProgressionLogHandler,
   overridePyramidAdvancementHandler,
   regeneratePyramidStageHandler,
+  activateLevel1BHandler,
 } from '../controllers/tierPyramidController.js';
 import { authenticate, isAdmin } from '../middlewares/auth.js';
 
@@ -34,5 +35,6 @@ router.get('/pyramid/progression-log', getPyramidProgressionLogHandler);
 router.post('/pyramid/assign-tiers', authenticate, isAdmin, assignPyramidTiers);
 router.post('/pyramid/override-advancement', authenticate, isAdmin, overridePyramidAdvancementHandler);
 router.post('/pyramid/regenerate-stage', authenticate, isAdmin, regeneratePyramidStageHandler);
+router.post('/pyramid/activate-level1b', authenticate, isAdmin, activateLevel1BHandler);
 
 export default router;

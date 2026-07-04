@@ -35,13 +35,18 @@ import {
   tryBuildThirdPlaceFixture,
   computeS1Advancement,
   computeS2Advancement,
+  computeLevel1BAdvancement,
   computeBracketStageAdvancement,
   isPyramidStageComplete,
+  isS1Complete,
+  isLevel1BComplete,
   isLevel1Complete,
   hasRoundType,
   hasAdvancementWithPrefix,
+  deriveLevel1bStatus,
   derivePyramidTournamentStatus,
   getS1GroupsFromMatches,
+  buildLevel1BFixtures,
 } from './advancement.js';
 import { buildTierPyramidLevel1Fixtures } from './matchGeneration.js';
 import {
@@ -137,13 +142,18 @@ export {
 export {
   computeS1Advancement,
   computeS2Advancement,
+  computeLevel1BAdvancement,
   computeBracketStageAdvancement,
   isPyramidStageComplete,
+  isS1Complete,
+  isLevel1BComplete,
   isLevel1Complete,
   hasRoundType,
   hasAdvancementWithPrefix,
+  deriveLevel1bStatus,
   derivePyramidTournamentStatus,
   getS1GroupsFromMatches,
+  buildLevel1BFixtures,
   buildLevel2Fixtures,
   buildLevel3QuarterFinalFixtures,
   buildLevel3FirstRoundPlan,
@@ -162,12 +172,14 @@ export {
 } from './bracket.js';
 export {
   rankEntrantsByCumulativeWins,
+  rankEntrantsByRoundTypes,
   generateSeededBracketPairings,
   getOrderedBracketResults,
   generateLevel2CrossoverPairings,
   generateLevel3CrossoverPairings,
   buildLevel3CrossoverRound,
   buildPyramidCrossoverRound,
+  buildLevel1BPairings,
   partitionLevel2Entrants,
   partitionLevel3Entrants,
 } from './seeding.js';
