@@ -16,11 +16,13 @@ export const DEFAULT_TIER_PYRAMID_CONFIG = {
   tier3Count: 12,
   s1GroupCount: 4,
   s1GroupSize: 6,
-  s1QualifiersPerGroup: 1,
+  s1QualifiersPerGroup: 2,
+  l1bAdvanceCount: 4,
   s2AdvanceCount: 4,
   s2DropCount: 4,
   l2AdvanceCount: 4,
   l3AdvanceCount: 2,
+  auto_advance: false,
 };
 
 /**
@@ -46,6 +48,9 @@ export function normalizeTierPyramidConfig(partial) {
     s1QualifiersPerGroup: Number(
       partial.s1QualifiersPerGroup ?? DEFAULT_TIER_PYRAMID_CONFIG.s1QualifiersPerGroup
     ),
+    l1bAdvanceCount: Number(
+      partial.l1bAdvanceCount ?? DEFAULT_TIER_PYRAMID_CONFIG.l1bAdvanceCount
+    ),
     s2AdvanceCount: Number(
       partial.s2AdvanceCount ?? partial.s3AdvanceCount ?? DEFAULT_TIER_PYRAMID_CONFIG.s2AdvanceCount
     ),
@@ -54,6 +59,7 @@ export function normalizeTierPyramidConfig(partial) {
     ),
     l2AdvanceCount: Number(partial.l2AdvanceCount ?? DEFAULT_TIER_PYRAMID_CONFIG.l2AdvanceCount),
     l3AdvanceCount: Number(partial.l3AdvanceCount ?? DEFAULT_TIER_PYRAMID_CONFIG.l3AdvanceCount),
+    auto_advance: Boolean(partial.auto_advance ?? DEFAULT_TIER_PYRAMID_CONFIG.auto_advance),
   };
 }
 
@@ -75,6 +81,7 @@ export function countTierPyramidMatches(config) {
   const s1Entrants = normalized.tier2Count + normalized.tier3Count;
   const s1Matches = countS1RoundRobinMatches(normalized);
   const s2Matches = roundRobinMatchCount(normalized.tier1Count);
+  const l1bMatches = normalized.l1bAdvanceCount;
   const l2Matches = normalized.l2AdvanceCount;
   const l3QfMatches = Math.min(normalized.s2AdvanceCount, normalized.l2AdvanceCount);
   const semifinalMatches = 2;
@@ -84,15 +91,17 @@ export function countTierPyramidMatches(config) {
   return {
     s1: s1Matches,
     s2: s2Matches,
+    level1b: l1bMatches,
     level2: l2Matches,
     level3: l3QfMatches,
     semifinals: semifinalMatches,
     final: finalMatches,
     thirdPlace: thirdPlaceMatches,
     level1Total: s1Matches + s2Matches,
-    total: s1Matches + s2Matches + l2Matches + l3QfMatches + semifinalMatches + finalMatches + thirdPlaceMatches,
+    total: s1Matches + s2Matches + l1bMatches + l2Matches + l3QfMatches + semifinalMatches + finalMatches + thirdPlaceMatches,
     s1Entrants,
-    level2Entrants: normalized.s1GroupCount * normalized.s1QualifiersPerGroup + normalized.s2DropCount,
+    l1bEntrants: normalized.s1GroupCount * normalized.s1QualifiersPerGroup,
+    level2Entrants: normalized.l1bAdvanceCount + normalized.s2DropCount,
     level3Entrants: normalized.s2AdvanceCount + normalized.l2AdvanceCount,
     semifinalEntrants: PYRAMID_SEMIFINAL_TEAM_COUNT,
     s2AdvanceToL3: normalized.s2AdvanceCount,
@@ -208,10 +217,16 @@ export function validateTierPyramidConfig(partial, participantCount = null, opti
     );
   }
 
-  const s1Qualifiers = config.s1GroupCount * config.s1QualifiersPerGroup;
-  if (s1Qualifiers !== config.l2AdvanceCount) {
+  const l1bEntrants = config.s1GroupCount * config.s1QualifiersPerGroup;
+  if (l1bEntrants < config.l1bAdvanceCount) {
     errors.push(
-      `S1 qualifiers (${s1Qualifiers}) must equal Level 2 advance slots from S1 (${config.l2AdvanceCount}).`
+      `S1 qualifiers (${l1bEntrants}) must be at least Level 1B advance count (${config.l1bAdvanceCount}).`
+    );
+  }
+
+  if (config.l1bAdvanceCount !== config.l2AdvanceCount) {
+    errors.push(
+      `Level 1B advance count (${config.l1bAdvanceCount}) must equal Level 2 advance slots (${config.l2AdvanceCount}).`
     );
   }
 
@@ -221,7 +236,7 @@ export function validateTierPyramidConfig(partial, participantCount = null, opti
     );
   }
 
-  const level2Entrants = s1Qualifiers + config.s2DropCount;
+  const level2Entrants = config.l1bAdvanceCount + config.s2DropCount;
   if (relaxed) {
     if (level2Entrants < 2) {
       errors.push(`Level 2 requires at least 2 entrants (got ${level2Entrants}).`);
@@ -445,7 +460,9 @@ function scoreDerivedConfig(tierCounts, config) {
  */
 function buildCandidateConfig(tierCounts, groupCount, qualifiersPerGroup) {
   const { tier1, tier2, tier3 } = tierCounts;
-  const l2AdvanceCount = groupCount * qualifiersPerGroup;
+  const l1bEntrantCount = groupCount * qualifiersPerGroup;
+  const l1bAdvanceCount = 4;
+  const l2AdvanceCount = l1bAdvanceCount;
   const s2DropCount = l2AdvanceCount;
   if (tier1 <= s2DropCount) return null;
 
@@ -460,6 +477,7 @@ function buildCandidateConfig(tierCounts, groupCount, qualifiersPerGroup) {
     s1GroupCount: groupCount,
     s1GroupSize,
     s1QualifiersPerGroup: qualifiersPerGroup,
+    l1bAdvanceCount,
     s2AdvanceCount,
     s2DropCount,
     l2AdvanceCount,
@@ -488,8 +506,9 @@ export function suggestTierPyramidConfigs(tierCounts, options = {}) {
 
   for (const groupCount of S1_GROUP_COUNT_CANDIDATES) {
     for (const qualifiersPerGroup of [1, 2]) {
-      const l2AdvanceCount = groupCount * qualifiersPerGroup;
-      if (l2AdvanceCount > tier1 - 1) continue;
+      const l1bEntrantCount = groupCount * qualifiersPerGroup;
+      if (l1bEntrantCount < 4) continue;
+      if (4 > tier1 - 1) continue;
 
       const config = buildCandidateConfig({ tier1, tier2, tier3 }, groupCount, qualifiersPerGroup);
       if (!config) continue;

@@ -57,19 +57,9 @@ const parseCourtConfigFromBody = (body = {}) => {
 // Get all matches
 export const getAllMatches = async (req, res, next) => {
   try {
-    await ensureMatchSchema(pool);
-
     const { division } = req.query;
     const resolvedDivision = division ? rejectInvalidDivision(res, division) : null;
     if (division && resolvedDivision === undefined) return;
-
-    if (resolvedDivision) {
-      try {
-        await ensureThirdPlaceMatch(pool, resolvedDivision);
-      } catch (healError) {
-        console.error('Third place auto-heal skipped:', healError.message);
-      }
-    }
 
     let whereClause = '';
     const params = [];
@@ -283,38 +273,30 @@ export const createMultipleMatches = async (req, res, next) => {
       });
     }
     
-    const createdMatches = [];
-    
-    for (const match of matches) {
-      const {
-        team1_id,
-        team2_id,
-        scheduled_date,
-        venue,
-        round_type,
-        pool: poolName,
-        division: matchDivision,
-      } = match;
-      
-      if (team1_id === team2_id) {
-        continue;
-      }
-      
-      const [team1Rows] = await pool.execute('SELECT id, division FROM teams WHERE id = ?', [team1_id]);
-      const [team2Rows] = await pool.execute('SELECT id, division FROM teams WHERE id = ?', [team2_id]);
-      if (team1Rows.length === 0 || team2Rows.length === 0) {
-        continue;
-      }
-      const teamDivision = team1Rows[0].division;
-      if (teamDivision !== team2Rows[0].division) {
-        continue;
-      }
+    // Batch-fetch all team IDs to avoid N+1
+    const allTeamIds = [...new Set(matches.flatMap(m => [m.team1_id, m.team2_id]).filter(Boolean))];
+    const [teamRows] = allTeamIds.length > 0
+      ? await pool.execute(
+          `SELECT id, division FROM teams WHERE id IN (${allTeamIds.map(() => '?').join(',')})`,
+          allTeamIds
+        )
+      : [[]];
+    const teamMap = new Map(teamRows.map(t => [t.id, t]));
 
-      const resolvedDivision = matchDivision || requestedDivision || teamDivision;
-      if (resolvedDivision !== teamDivision) {
+    const validMatches = [];
+    for (const match of matches) {
+      const { team1_id, team2_id, scheduled_date, venue, round_type, pool: poolName, division: matchDivision } = match;
+      if (team1_id === team2_id) continue;
+
+      const team1 = teamMap.get(team1_id);
+      const team2 = teamMap.get(team2_id);
+      if (!team1 || !team2 || team1.division !== team2.division) continue;
+
+      const resolvedDivision = matchDivision || requestedDivision || team1.division;
+      if (resolvedDivision !== team1.division) {
         return res.status(400).json({
           success: false,
-          message: `Team division (${teamDivision}) does not match requested division (${resolvedDivision}).`,
+          message: `Team division (${team1.division}) does not match requested division (${resolvedDivision}).`,
         });
       }
       if (requestedDivision && resolvedDivision !== requestedDivision) {
@@ -328,19 +310,42 @@ export const createMultipleMatches = async (req, res, next) => {
       if (scheduled_date && scheduled_date.includes('T')) {
         formattedDate = formatDateForMySQL(new Date(scheduled_date));
       }
-      
+
       const normalizedTeam1Id = team1_id < team2_id ? team1_id : team2_id;
       const normalizedTeam2Id = team1_id < team2_id ? team2_id : team1_id;
-      
-      const [result] = await pool.execute(
-        'INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [normalizedTeam1Id, normalizedTeam2Id, formattedDate, venue, round_type || 'Qualifying', poolName || null, resolvedDivision]
-      );
-      
-      createdMatches.push({
-        id: result.insertId,
-        ...match,
+
+      validMatches.push({
+        team1_id: normalizedTeam1Id,
+        team2_id: normalizedTeam2Id,
+        scheduled_date: formattedDate,
+        venue,
+        round_type: round_type || 'Qualifying',
+        pool: poolName || null,
         division: resolvedDivision,
+        original: match,
+      });
+    }
+
+    // Bulk insert all valid matches
+    const createdMatches = [];
+    if (validMatches.length > 0) {
+      const values = validMatches.map(m => `(?, ?, ?, ?, ?, ?, ?)`).join(',');
+      const params = validMatches.flatMap(m => [
+        m.team1_id,
+        m.team2_id,
+        m.scheduled_date,
+        m.venue,
+        m.round_type,
+        m.pool,
+        m.division,
+      ]);
+      const [result] = await pool.execute(
+        `INSERT INTO matches (team1_id, team2_id, scheduled_date, venue, round_type, pool, division) VALUES ${values}`,
+        params
+      );
+      const firstId = result.insertId;
+      validMatches.forEach((m, i) => {
+        createdMatches.push({ id: firstId + i, ...m.original, division: m.division });
       });
     }
     

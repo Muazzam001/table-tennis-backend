@@ -65,6 +65,15 @@ export function filterMatchesForPyramidRound(matches, roundType) {
   if (roundType === 'Level 1') {
     return matches.filter((m) => m.round_type === 'S1' || m.round_type === 'S2');
   }
+  if (roundType === 'Level 1A') {
+    return matches.filter((m) => m.round_type === 'S1');
+  }
+  if (roundType === 'Level 1B') {
+    return matches.filter((m) => m.round_type === 'Level 1B');
+  }
+  if (roundType === 'S3' || roundType === 'Tier 1') {
+    return matches.filter((m) => m.round_type === 'S2');
+  }
   if (roundType === 'Level 3') {
     return getLevel3Matches(matches);
   }

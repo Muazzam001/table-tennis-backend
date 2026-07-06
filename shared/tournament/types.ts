@@ -19,6 +19,12 @@ export type TournamentStatus =
 /** Tier Pyramid tournament lifecycle (used when format is tier-pyramid) */
 export type PyramidTournamentStatus =
   | 'Draft'
+  | 'Level 1A Active'
+  | 'Level 1A Complete'
+  | 'Level 1B Waiting'
+  | 'Level 1B Ready'
+  | 'Level 1B Active'
+  | 'Level 1B Complete'
   | 'Level 1 Active'
   | 'Level 1 Complete'
   | 'Level 2 Active'
@@ -30,12 +36,15 @@ export type PyramidTournamentStatus =
   | 'Final Active'
   | 'Completed';
 
-export type PyramidStage = 'S1' | 'S2' | 'L2' | 'L3' | 'Final';
+export type Level1bStatus = 'waiting' | 'ready' | 'active' | 'complete';
+
+export type PyramidStage = 'S1' | 'S2' | 'L1B' | 'L2' | 'L3' | 'Final';
 
 export type PyramidEntrantStage =
   | 'registered'
   | 'S1'
   | 'S2'
+  | 'L1B'
   | 'L2'
   | 'L3'
   | 'final'
@@ -54,6 +63,7 @@ export type RoundType =
   | 'Third Place'
   | 'S1'
   | 'S2'
+  | 'Level 1B'
   | 'Level 2'
   | 'Level 3';
 
@@ -71,10 +81,12 @@ export interface TierPyramidConfig {
   s1GroupCount: number;
   s1GroupSize: number;
   s1QualifiersPerGroup: number;
+  l1bAdvanceCount: number;
   s2AdvanceCount: number;
   s2DropCount: number;
   l2AdvanceCount: number;
   l3AdvanceCount: number;
+  auto_advance?: boolean;
 }
 
 export interface TierAssignment {
