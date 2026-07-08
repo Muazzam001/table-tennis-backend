@@ -8,6 +8,11 @@ import {
   computeS1Advancement,
   computeS2Advancement,
   computeLevel1BAdvancement,
+  computeLevel1BRound1Advancement,
+  buildLevel1BRound2Fixtures,
+  isLevel1BRound1Complete,
+  needsLevel1BRound2,
+  getLevel1BRoundCount,
   computeBracketStageAdvancement,
   buildLevel1BFixtures,
   buildLevel2Fixtures,
@@ -272,7 +277,39 @@ export async function tryAutoProgressTierPyramid(db, division, triggeredByMatchI
 
   matches = await getDivisionMatches(db, division);
 
-  if (isLevel1BComplete(matches) && !hasAdvancementWithPrefix(teams, 'L1B-adv-')) {
+  // Level 1B Round 1 complete → eliminate Round 1 losers and generate Round 2.
+  if (
+    isLevel1BRound1Complete(matches) &&
+    needsLevel1BRound2(matches, config) &&
+    getLevel1BRoundCount(matches) < 2 &&
+    !hasAdvancementWithPrefix(teams, 'L1B-adv-')
+  ) {
+    const { winners, eliminated } = computeLevel1BRound1Advancement(matches, teams);
+    await applyAdvancementUpdates(
+      db,
+      division,
+      [...winners, ...eliminated],
+      'auto',
+      triggeredByMatchId
+    );
+    teams = await getTeamsWithTier(db, division);
+    const r2Fixtures = buildLevel1BRound2Fixtures(matches, teams);
+    const created = await insertPyramidMatches(db, r2Fixtures, division, matches);
+    for (const fixture of r2Fixtures) {
+      await db.execute(
+        `UPDATE teams SET pyramid_status = 'active' WHERE id IN (?, ?) AND division = ?`,
+        [fixture.team1_id, fixture.team2_id, division]
+      );
+    }
+    actions.push(`Level 1B Round 2 generated (${created.length} matches)`);
+    matches = await getDivisionMatches(db, division);
+  }
+
+  // Level 1B final round complete → advance winners to Level 2.
+  if (
+    isLevel1BComplete(matches, config.l1bAdvanceCount) &&
+    !hasAdvancementWithPrefix(teams, 'L1B-adv-')
+  ) {
     const { winners, eliminated } = computeLevel1BAdvancement(matches, teams, config);
     if (winners.length > 0) {
       await applyAdvancementUpdates(
@@ -291,7 +328,7 @@ export async function tryAutoProgressTierPyramid(db, division, triggeredByMatchI
   matches = await getDivisionMatches(db, division);
 
   if (
-    isLevel1BComplete(matches) &&
+    isLevel1BComplete(matches, config.l1bAdvanceCount) &&
     hasAdvancementWithPrefix(teams, 'L1B-adv-') &&
     isPyramidStageComplete(matches, 'S2') &&
     hasAdvancementWithPrefix(teams, 'S2-') &&

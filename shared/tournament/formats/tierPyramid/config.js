@@ -82,7 +82,14 @@ export function countTierPyramidMatches(config) {
   const s1Matches = countS1RoundRobinMatches(normalized);
   const s2Matches = roundRobinMatchCount(normalized.tier1Count);
   const l1bEntrants = normalized.s1GroupCount * normalized.s1QualifiersPerGroup;
-  const l1bMatches = Math.floor(l1bEntrants / 2);
+  let l1bMatches = 0;
+  let l1bRoundWinners = l1bEntrants;
+  while (l1bRoundWinners > normalized.l1bAdvanceCount) {
+    const roundMatches = Math.floor(l1bRoundWinners / 2);
+    if (roundMatches < 1) break;
+    l1bMatches += roundMatches;
+    l1bRoundWinners = roundMatches;
+  }
   const l2Matches = normalized.l2AdvanceCount;
   const l3QfMatches = Math.min(normalized.s2AdvanceCount, normalized.l2AdvanceCount);
   const semifinalMatches = 2;

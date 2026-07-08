@@ -62,10 +62,82 @@ export function isS1Complete(matches) {
 }
 
 /**
+ * Group Level 1B matches into knockout rounds by stage_sequence.
+ * Round sizes halve each round (entrants/2, /4, …) until the target is reached.
+ * @param {Match[]} matches
+ * @returns {Match[][]} rounds, ordered (Round 1 first)
+ */
+export function getLevel1BRoundMatches(matches) {
+  const l1b = matches
+    .filter((m) => m.round_type === 'Level 1B')
+    .sort((a, b) => (a.stage_sequence ?? 0) - (b.stage_sequence ?? 0));
+  if (l1b.length === 0) return [];
+
+  const participants = new Set();
+  for (const m of l1b) {
+    participants.add(m.team1_id);
+    participants.add(m.team2_id);
+  }
+
+  /** @type {Match[][]} */
+  const rounds = [];
+  let offset = 0;
+  let count = Math.floor(participants.size / 2);
+  while (offset < l1b.length && count >= 1) {
+    rounds.push(l1b.slice(offset, offset + count));
+    offset += count;
+    count = Math.floor(count / 2);
+  }
+  if (offset < l1b.length) rounds.push(l1b.slice(offset));
+  return rounds;
+}
+
+/**
+ * @param {Match[]} round
+ */
+function isLevel1BRoundComplete(round) {
+  return round.length > 0 && round.every((m) => m.status === 'Completed' && m.winner_team_id);
+}
+
+/**
+ * @param {Match[]} matches
+ * @returns {number}
+ */
+export function getLevel1BRoundCount(matches) {
+  return getLevel1BRoundMatches(matches).length;
+}
+
+/**
  * @param {Match[]} matches
  */
-export function isLevel1BComplete(matches) {
-  return isPyramidStageComplete(matches, 'L1B');
+export function isLevel1BRound1Complete(matches) {
+  const rounds = getLevel1BRoundMatches(matches);
+  return rounds.length >= 1 && isLevel1BRoundComplete(rounds[0]);
+}
+
+/**
+ * Whether a second Level 1B round is required (Round 1 winners exceed the L2 feed).
+ * @param {Match[]} matches
+ * @param {Partial<TierPyramidConfig>} [partialConfig]
+ */
+export function needsLevel1BRound2(matches, partialConfig = {}) {
+  const config = normalizeTierPyramidConfig(partialConfig);
+  const rounds = getLevel1BRoundMatches(matches);
+  if (rounds.length === 0) return false;
+  return rounds[0].length > config.l1bAdvanceCount;
+}
+
+/**
+ * Level 1B is complete when every round has finished and the final round has
+ * narrowed the field to the L2 feed (default 4).
+ * @param {Match[]} matches
+ * @param {number} [target]
+ */
+export function isLevel1BComplete(matches, target = 4) {
+  const rounds = getLevel1BRoundMatches(matches);
+  if (rounds.length === 0) return false;
+  if (!rounds.every(isLevel1BRoundComplete)) return false;
+  return rounds[rounds.length - 1].length <= target;
 }
 
 /**
@@ -193,56 +265,28 @@ export function computeS2Advancement(matches, tier1Teams, partialConfig = {}) {
 }
 
 /**
+ * Round 1 result: winners stay in Level 1B for Round 2, losers are eliminated.
  * @param {Match[]} matches
- * @param {Team[]} teams
- * @param {Partial<TierPyramidConfig>} [partialConfig]
+ * @param {Team[]} _teams
  * @returns {{ winners: AdvancementUpdate[], eliminated: AdvancementUpdate[] }}
  */
-export function computeLevel1BAdvancement(matches, teams, partialConfig = {}) {
-  const config = normalizeTierPyramidConfig(partialConfig);
-  const l1bEntrants = teams.filter(
-    (t) => t.pyramid_stage === 'L1B' && t.advancement_source?.startsWith('S1-')
-  );
-  const l1bMatches = matches.filter((m) => m.round_type === 'Level 1B');
+export function computeLevel1BRound1Advancement(matches, _teams = []) {
+  const rounds = getLevel1BRoundMatches(matches);
+  if (rounds.length === 0) return { winners: [], eliminated: [] };
+  const r1 = rounds[0];
+  if (!isLevel1BRoundComplete(r1)) return { winners: [], eliminated: [] };
 
-  /** @type {Map<number, number>} */
-  const l1bWins = new Map();
-  for (const entrant of l1bEntrants) {
-    l1bWins.set(entrant.id, 0);
-  }
-  for (const match of l1bMatches) {
-    if (match.status === 'Completed' && match.winner_team_id) {
-      l1bWins.set(match.winner_team_id, (l1bWins.get(match.winner_team_id) || 0) + 1);
-    }
-  }
-
-  const cumulativeStandings = rankEntrantsByRoundTypes(l1bEntrants, matches, ['S1', 'Level 1B']);
-  const standingsById = Object.fromEntries(cumulativeStandings.map((row) => [row.id, row]));
-
-  const ranked = [...l1bEntrants].sort((a, b) => {
-    const winsA = l1bWins.get(a.id) || 0;
-    const winsB = l1bWins.get(b.id) || 0;
-    if (winsB !== winsA) return winsB - winsA;
-    const rankA = standingsById[a.id]?.rank ?? 999;
-    const rankB = standingsById[b.id]?.rank ?? 999;
-    if (rankA !== rankB) return rankA - rankB;
-    return a.id - b.id;
-  });
-
-  const advancing = ranked.slice(0, config.l1bAdvanceCount);
-  const out = ranked.slice(config.l1bAdvanceCount);
-
-  const winners = advancing.map((row, index) => ({
-    teamId: row.id,
+  const winners = r1.map((m, index) => ({
+    teamId: m.winner_team_id,
     fromStage: 'L1B',
-    toStage: 'L2',
+    toStage: 'L1B',
     fromStatus: 'active',
-    toStatus: 'advanced',
-    source: `L1B-adv-${index + 1}`,
+    toStatus: 'active',
+    source: `L1B-r1-${index + 1}`,
   }));
 
-  const eliminated = out.map((row) => ({
-    teamId: row.id,
+  const eliminated = r1.map((m) => ({
+    teamId: m.winner_team_id === m.team1_id ? m.team2_id : m.team1_id,
     fromStage: 'L1B',
     toStage: 'eliminated',
     fromStatus: 'active',
@@ -254,7 +298,92 @@ export function computeLevel1BAdvancement(matches, teams, partialConfig = {}) {
 }
 
 /**
+ * Round 2 fixtures: winners of Round 1 (A,B)-side vs (C,D)-side, paired by match
+ * order — winner(match i) vs winner(match i + half).
  * @param {Match[]} matches
+ * @param {Team[]} teams
+ * @returns {PyramidPairingFixture[]}
+ */
+export function buildLevel1BRound2Fixtures(matches, teams = []) {
+  const rounds = getLevel1BRoundMatches(matches);
+  if (rounds.length === 0) return [];
+  const r1 = rounds[0];
+  if (!isLevel1BRoundComplete(r1)) return [];
+
+  const half = Math.floor(r1.length / 2);
+  if (half < 1) return [];
+
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  /** @type {PyramidPairingFixture[]} */
+  const fixtures = [];
+  for (let i = 0; i < half; i += 1) {
+    const w1 = r1[i].winner_team_id;
+    const w2 = r1[i + half].winner_team_id;
+    fixtures.push({
+      label: `L1B-R2-${i + 1}`,
+      team1_id: w1,
+      team2_id: w2,
+      team1: teamById.get(w1) ?? null,
+      team2: teamById.get(w2) ?? null,
+      round_type: 'Level 1B',
+      pyramid_stage: 'L1B',
+      stage_sequence: r1.length + i,
+      pool: null,
+    });
+  }
+  return fixtures;
+}
+
+/**
+ * Final Level 1B advancement: winners of the last round advance to Level 2,
+ * their opponents are eliminated. Winner seed order uses cumulative S1+L1B wins.
+ * @param {Match[]} matches
+ * @param {Team[]} teams
+ * @param {Partial<TierPyramidConfig>} [partialConfig]
+ * @returns {{ winners: AdvancementUpdate[], eliminated: AdvancementUpdate[] }}
+ */
+export function computeLevel1BAdvancement(matches, teams, partialConfig = {}) {
+  normalizeTierPyramidConfig(partialConfig);
+  const rounds = getLevel1BRoundMatches(matches);
+  if (rounds.length === 0) return { winners: [], eliminated: [] };
+  const lastRound = rounds[rounds.length - 1];
+  if (!isLevel1BRoundComplete(lastRound)) return { winners: [], eliminated: [] };
+
+  const winnerIds = lastRound.map((m) => m.winner_team_id);
+  const loserIds = lastRound.map((m) =>
+    m.winner_team_id === m.team1_id ? m.team2_id : m.team1_id
+  );
+
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const winnerTeams = winnerIds.map((id) => teamById.get(id)).filter(Boolean);
+  const standings = rankEntrantsByRoundTypes(winnerTeams, matches, ['S1', 'Level 1B']);
+  const rankById = new Map(standings.map((row, index) => [row.id, row.rank ?? index + 1]));
+  const orderedWinnerIds = [...winnerIds].sort(
+    (a, b) => (rankById.get(a) ?? 999) - (rankById.get(b) ?? 999) || a - b
+  );
+
+  const winners = orderedWinnerIds.map((id, index) => ({
+    teamId: id,
+    fromStage: 'L1B',
+    toStage: 'L2',
+    fromStatus: 'active',
+    toStatus: 'advanced',
+    source: `L1B-adv-${index + 1}`,
+  }));
+
+  const eliminated = loserIds.map((id) => ({
+    teamId: id,
+    fromStage: 'L1B',
+    toStage: 'eliminated',
+    fromStatus: 'active',
+    toStatus: 'eliminated',
+    source: null,
+  }));
+
+  return { winners, eliminated };
+}
+
+/**
  * @param {Team[]} teams
  * @returns {PyramidPairingFixture[]}
  */
