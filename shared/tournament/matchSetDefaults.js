@@ -10,6 +10,7 @@ export const DEFAULT_SET_COUNTS = {
   'Semi Final': 7,
   'Third Place': 9,
   'Level 1': 3,
+  'Level 1B': 3,
   'Level 2': 5,
   'Level 3': 7,
   Final: 9,
