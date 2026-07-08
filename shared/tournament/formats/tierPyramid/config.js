@@ -16,7 +16,7 @@ export const DEFAULT_TIER_PYRAMID_CONFIG = {
   tier3Count: 12,
   s1GroupCount: 4,
   s1GroupSize: 6,
-  s1QualifiersPerGroup: 2,
+  s1QualifiersPerGroup: 4,
   l1bAdvanceCount: 4,
   s2AdvanceCount: 4,
   s2DropCount: 4,
@@ -81,7 +81,15 @@ export function countTierPyramidMatches(config) {
   const s1Entrants = normalized.tier2Count + normalized.tier3Count;
   const s1Matches = countS1RoundRobinMatches(normalized);
   const s2Matches = roundRobinMatchCount(normalized.tier1Count);
-  const l1bMatches = normalized.l1bAdvanceCount;
+  const l1bEntrants = normalized.s1GroupCount * normalized.s1QualifiersPerGroup;
+  let l1bMatches = 0;
+  let l1bRoundWinners = l1bEntrants;
+  while (l1bRoundWinners > normalized.l1bAdvanceCount) {
+    const roundMatches = Math.floor(l1bRoundWinners / 2);
+    if (roundMatches < 1) break;
+    l1bMatches += roundMatches;
+    l1bRoundWinners = roundMatches;
+  }
   const l2Matches = normalized.l2AdvanceCount;
   const l3QfMatches = Math.min(normalized.s2AdvanceCount, normalized.l2AdvanceCount);
   const semifinalMatches = 2;
@@ -100,7 +108,7 @@ export function countTierPyramidMatches(config) {
     level1Total: s1Matches + s2Matches,
     total: s1Matches + s2Matches + l1bMatches + l2Matches + l3QfMatches + semifinalMatches + finalMatches + thirdPlaceMatches,
     s1Entrants,
-    l1bEntrants: normalized.s1GroupCount * normalized.s1QualifiersPerGroup,
+    l1bEntrants,
     level2Entrants: normalized.l1bAdvanceCount + normalized.s2DropCount,
     level3Entrants: normalized.s2AdvanceCount + normalized.l2AdvanceCount,
     semifinalEntrants: PYRAMID_SEMIFINAL_TEAM_COUNT,
@@ -442,6 +450,7 @@ function scoreDerivedConfig(tierCounts, config) {
   score -= Math.abs(config.tier3Count - tierCounts.tier3) * 3;
   if (config.s1GroupSize >= 4 && config.s1GroupSize <= 8) score += 5;
   if (config.s1GroupCount === 4) score += 2;
+  if (config.s1QualifiersPerGroup === DEFAULT_TIER_PYRAMID_CONFIG.s1QualifiersPerGroup) score += 2;
   if (
     config.tier1Count === DEFAULT_TIER_PYRAMID_CONFIG.tier1Count &&
     config.tier2Count === DEFAULT_TIER_PYRAMID_CONFIG.tier2Count &&
@@ -505,9 +514,10 @@ export function suggestTierPyramidConfigs(tierCounts, options = {}) {
   const candidates = [];
 
   for (const groupCount of S1_GROUP_COUNT_CANDIDATES) {
-    for (const qualifiersPerGroup of [1, 2]) {
+    for (const qualifiersPerGroup of [1, 2, 4]) {
       const l1bEntrantCount = groupCount * qualifiersPerGroup;
       if (l1bEntrantCount < 4) continue;
+      if (qualifiersPerGroup >= 2 && groupCount % 2 !== 0) continue;
       if (4 > tier1 - 1) continue;
 
       const config = buildCandidateConfig({ tier1, tier2, tier3 }, groupCount, qualifiersPerGroup);

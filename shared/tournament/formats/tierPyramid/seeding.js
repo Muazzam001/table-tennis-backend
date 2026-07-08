@@ -189,48 +189,77 @@ export function generateLevel2CrossoverPairings(l1bWinners, s2Drops, allMatches,
   }).fixtures;
 }
 
-/** Deterministic cross-group Level 1B pairings: A1 vs B2, B1 vs A2, C1 vs D2, D1 vs C2 */
-const LEVEL_1B_PAIRING_SLOTS = [
-  ['A', 1, 'B', 2],
-  ['B', 1, 'A', 2],
-  ['C', 1, 'D', 2],
-  ['D', 1, 'C', 2],
-];
-
 /**
+ * Deterministic cross-group Level 1B pairings.
+ *
+ * Consecutive S1 groups are paired up — (A,B), (C,D), … — and within each pair
+ * the qualifiers play a seeded crossover: rank `i` of one group vs rank
+ * `(k+1-i)` of the other. With 2 qualifiers/group this yields 4 matches
+ * (A1 vs B2, A2 vs B1, …); with 4 qualifiers/group it yields 8 matches
+ * (A1 vs B4, A2 vs B3, A3 vs B2, A4 vs B1, …).
+ *
  * @param {Team[]} s1Qualifiers — teams with advancement_source S1-{pool}-{rank}
  * @returns {PyramidPairingFixture[]}
  */
 export function buildLevel1BPairings(s1Qualifiers) {
-  /** @type {Record<string, Team>} */
-  const slotMap = {};
+  /** @type {Record<string, Record<number, Team>>} */
+  const byPool = {};
   for (const team of s1Qualifiers) {
     const match = team.advancement_source?.match(/^S1-([A-Z])-(\d+)$/);
     if (!match) continue;
-    slotMap[`${match[1]}-${match[2]}`] = team;
+    const pool = match[1];
+    const rank = Number.parseInt(match[2], 10);
+    (byPool[pool] ??= {})[rank] = team;
   }
 
-  return LEVEL_1B_PAIRING_SLOTS.map((slot, index) => {
-    const [pool1, rank1, pool2, rank2] = slot;
-    const team1 = slotMap[`${pool1}-${rank1}`];
-    const team2 = slotMap[`${pool2}-${rank2}`];
-    if (!team1 || !team2) {
+  const pools = Object.keys(byPool).sort();
+  if (pools.length < 2 || pools.length % 2 !== 0) {
+    throw new Error(
+      `Level 1B pairing requires an even number of S1 groups (got ${pools.length}).`
+    );
+  }
+
+  /** @type {PyramidPairingFixture[]} */
+  const fixtures = [];
+  let sequence = 0;
+
+  for (let p = 0; p + 1 < pools.length; p += 2) {
+    const poolA = pools[p];
+    const poolB = pools[p + 1];
+    const ranksA = Object.keys(byPool[poolA]).map(Number).sort((a, b) => a - b);
+    const ranksB = Object.keys(byPool[poolB]).map(Number).sort((a, b) => a - b);
+    const k = Math.min(ranksA.length, ranksB.length);
+
+    if (k === 0 || ranksA.length !== ranksB.length) {
       throw new Error(
-        `Missing Level 1B qualifier for slot ${pool1}${rank1} vs ${pool2}${rank2}`
+        `Level 1B pairing requires equal qualifiers in groups ${poolA} (${ranksA.length}) and ${poolB} (${ranksB.length}).`
       );
     }
-    return {
-      label: `L1B-${index + 1}`,
-      team1_id: team1.id,
-      team2_id: team2.id,
-      team1,
-      team2,
-      round_type: 'Level 1B',
-      pyramid_stage: 'L1B',
-      stage_sequence: index,
-      pool: null,
-    };
-  });
+
+    for (let i = 0; i < k; i += 1) {
+      const team1 = byPool[poolA][ranksA[i]];
+      const team2 = byPool[poolB][ranksB[k - 1 - i]];
+      if (!team1 || !team2) {
+        throw new Error(
+          `Missing Level 1B qualifier for slot ${poolA}${ranksA[i]} vs ${poolB}${ranksB[k - 1 - i]}`
+        );
+      }
+      fixtures.push({
+        label: `L1B-${sequence + 1}`,
+        team1_id: team1.id,
+        team2_id: team2.id,
+        team1,
+        team2,
+        round_type: 'Level 1B',
+        pyramid_stage: 'L1B',
+        stage_sequence: sequence,
+        pool: null,
+      });
+      sequence += 1;
+    }
+  }
+
+  return fixtures;
 }
 
 /**
