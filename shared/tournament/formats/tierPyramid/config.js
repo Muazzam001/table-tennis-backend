@@ -317,6 +317,62 @@ export function countTiersFromAssignments(tierAssignments) {
 }
 
 /**
+ * User-tunable fields preserved when roster tier counts change.
+ * Structural fields (group sizes, advance counts) are always re-derived.
+ * @param {Partial<TierPyramidConfig>} savedConfig
+ */
+function pickTierPyramidSavedPreferences(savedConfig = {}) {
+  /** @type {Partial<TierPyramidConfig>} */
+  const prefs = {};
+  if (savedConfig.auto_advance != null) {
+    prefs.auto_advance = Boolean(savedConfig.auto_advance);
+  }
+  if (savedConfig.s1QualifiersPerGroup != null) {
+    prefs.s1QualifiersPerGroup = Number(savedConfig.s1QualifiersPerGroup);
+  }
+  return prefs;
+}
+
+/**
+ * Merge derived pyramid structure with saved user preferences.
+ * @param {TierPyramidConfig} derived
+ * @param {Partial<TierPyramidConfig>} savedConfig
+ * @param {TierCountShape} tierCounts
+ */
+function mergeDerivedTierPyramidConfig(derived, savedConfig, tierCounts) {
+  const { tier1, tier2, tier3 } = tierCounts;
+  const prefs = pickTierPyramidSavedPreferences(savedConfig);
+
+  let config = normalizeTierPyramidConfig({
+    ...derived,
+    ...prefs,
+    tier1Count: tier1,
+    tier2Count: tier2,
+    tier3Count: tier3,
+  });
+
+  const savedQualifiers = prefs.s1QualifiersPerGroup;
+  if (
+    savedQualifiers != null &&
+    Number.isFinite(savedQualifiers) &&
+    savedQualifiers !== config.s1QualifiersPerGroup
+  ) {
+    const rebuilt = buildCandidateConfig({ tier1, tier2, tier3 }, config.s1GroupCount, savedQualifiers);
+    if (rebuilt) {
+      config = normalizeTierPyramidConfig({
+        ...rebuilt,
+        ...prefs,
+        tier1Count: tier1,
+        tier2Count: tier2,
+        tier3Count: tier3,
+      });
+    }
+  }
+
+  return config;
+}
+
+/**
  * Resolve pyramid config from actual tier assignments (flexible roster).
  * @param {TierAssignment[]} tierAssignments
  * @param {Partial<TierPyramidConfig>} [savedConfig]
@@ -336,14 +392,37 @@ export function resolveTierPyramidConfigForAssignments(tierAssignments, savedCon
 
   const derived = deriveTierPyramidConfigFromTierCounts(tierCounts);
   if (derived) {
-    return { config: derived, tierCounts, errors: [], isDerived: true };
+    const config = mergeDerivedTierPyramidConfig(derived, savedConfig, tierCounts);
+    const errors = validateTierPyramidConfig(config, total, { relaxed: true });
+    if (errors.length === 0) {
+      return {
+        config,
+        tierCounts,
+        errors: [],
+        isDerived: Object.keys(savedConfig).length === 0,
+      };
+    }
+
+    return {
+      config: null,
+      tierCounts,
+      errors,
+      isDerived: false,
+    };
   }
 
   const suggestions = suggestTierPyramidConfigs(tierCounts, { limit: 1 });
-  const hint =
-    suggestions.length > 0
-      ? ` Closest valid split: ${suggestions[0].config.tier1Count}/${suggestions[0].config.tier2Count}/${suggestions[0].config.tier3Count}.`
-      : '';
+  const suggestion = suggestions[0];
+  const sameSplit =
+    suggestion &&
+    suggestion.config.tier1Count === tierCounts.tier1 &&
+    suggestion.config.tier2Count === tierCounts.tier2 &&
+    suggestion.config.tier3Count === tierCounts.tier3;
+  const hint = suggestion
+    ? sameSplit
+      ? ` Try ${suggestion.config.s1GroupCount} S1 groups of ~${suggestion.config.s1GroupSize} with top ${suggestion.config.s1QualifiersPerGroup} per group.`
+      : ` Closest valid split: ${suggestion.config.tier1Count}/${suggestion.config.tier2Count}/${suggestion.config.tier3Count}.`
+    : '';
 
   return {
     config: null,

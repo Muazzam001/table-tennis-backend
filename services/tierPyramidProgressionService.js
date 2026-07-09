@@ -30,6 +30,7 @@ import { getLevel3QuarterFinalMatches, getPyramidSemiFinalMatches } from '@share
 import { getDivisionMatches } from './tournamentService.js';
 import { getDivisionSettings } from './divisionSettingsService.js';
 import { ensureTierPyramidSchema } from './tierPyramidSchemaService.js';
+import { PG_ENUM } from '../utils/sql.js';
 
 const TEAM_SELECT = `
   SELECT id, team_name, division, tier, pyramid_stage, pyramid_status, advancement_source
@@ -52,7 +53,7 @@ async function getTeamsWithTier(db, division) {
  */
 async function setLevel1bStatus(db, division, status) {
   await db.execute(
-    `UPDATE division_settings SET level1b_status = ? WHERE division = ?`,
+    `UPDATE division_settings SET level1b_status = ?::${PG_ENUM.level1bStatus} WHERE division = ?`,
     [status, division]
   );
 }
@@ -110,8 +111,8 @@ async function applyAdvancementUpdates(
   if (validUpdates.length === 0) return;
 
   // Bulk UPDATE using CASE
-  const stageClauses = validUpdates.map(() => 'WHEN id = ? THEN ?').join(' ');
-  const statusClauses = validUpdates.map(() => 'WHEN id = ? THEN ?').join(' ');
+  const stageClauses = validUpdates.map(() => `WHEN id = ? THEN ?::${PG_ENUM.pyramidTeamStage}`).join(' ');
+  const statusClauses = validUpdates.map(() => `WHEN id = ? THEN ?::${PG_ENUM.pyramidTeamStatus}`).join(' ');
   const sourceClauses = validUpdates.map(() => 'WHEN id = ? THEN ?').join(' ');
   const updateParams = [
     ...validUpdates.flatMap(u => [u.teamId, u.toStage]),
@@ -121,15 +122,17 @@ async function applyAdvancementUpdates(
   ];
   await db.execute(
     `UPDATE teams
-     SET pyramid_stage   = CASE ${stageClauses} END,
-         pyramid_status  = CASE ${statusClauses} END,
+     SET pyramid_stage   = (CASE ${stageClauses} END)::${PG_ENUM.pyramidTeamStage},
+         pyramid_status  = (CASE ${statusClauses} END)::${PG_ENUM.pyramidTeamStatus},
          advancement_source = CASE ${sourceClauses} END
-     WHERE id IN (${teamIds.join(',')}) AND division = ?`,
+     WHERE id IN (${validUpdates.map((u) => u.teamId).join(',')}) AND division = ?`,
     updateParams
   );
 
   // Bulk INSERT progression log
-  const logValues = validUpdates.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+  const logValues = validUpdates
+    .map(() => `(?::${PG_ENUM.genderDivision}, ?, ?, ?, ?, ?, ?::${PG_ENUM.progressionReason}, ?, ?, ?)`)
+    .join(',');
   const logParams = validUpdates.flatMap(u => {
     const state = teamStateMap.get(u.teamId);
     return [
@@ -175,7 +178,7 @@ async function insertPyramidMatches(db, matchDefs, division, existingMatches = [
     const [result] = await db.execute(
       `INSERT INTO matches (
         team1_id, team2_id, scheduled_date, venue, round_type, pool, division, pyramid_stage, stage_sequence
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?::${PG_ENUM.matchRoundType}, ?, ?, ?::${PG_ENUM.matchPyramidStage}, ?)`,
       [
         normalizedTeam1Id,
         normalizedTeam2Id,
@@ -233,7 +236,7 @@ export async function ensurePyramidThirdPlaceMatch(db, division, matches = null)
  */
 export async function tryAutoProgressTierPyramid(db, division, triggeredByMatchId = null) {
   await ensureTierPyramidSchema(db);
-  const settings = await getDivisionSettings(db, division);
+  let settings = await getDivisionSettings(db, division);
   if (!isTierPyramidFormat(settings.tournament_format)) {
     return { progressed: false };
   }
@@ -250,6 +253,7 @@ export async function tryAutoProgressTierPyramid(db, division, triggeredByMatchI
     actions.push('S1 advancement applied');
     teams = await getTeamsWithTier(db, division);
     await setLevel1bStatus(db, division, 'ready');
+    settings = await getDivisionSettings(db, division);
   }
 
   matches = await getDivisionMatches(db, division);
@@ -550,20 +554,24 @@ export async function activateLevel1B(db, division) {
     });
   }
 
-  const status = settings.level1b_status ?? 'waiting';
-  if (status !== 'ready') {
-    throw Object.assign(
-      new Error(`Level 1B cannot be activated (current status: ${status}). Complete Level 1A first.`),
-      { statusCode: 400 }
-    );
-  }
-
   const matches = await getDivisionMatches(db, division);
   if (!isS1Complete(matches)) {
     throw Object.assign(new Error('Level 1A (S1) is not complete.'), { statusCode: 400 });
   }
   if (hasRoundType(matches, 'Level 1B')) {
     throw Object.assign(new Error('Level 1B matches already exist.'), { statusCode: 400 });
+  }
+
+  const status = settings.level1b_status ?? 'waiting';
+  if (status !== 'ready' && status !== 'waiting') {
+    throw Object.assign(
+      new Error(`Level 1B cannot be activated (current status: ${status}).`),
+      { statusCode: 400 }
+    );
+  }
+
+  if (status === 'waiting') {
+    await setLevel1bStatus(db, division, 'ready');
   }
 
   let teams = await getTeamsWithTier(db, division);
@@ -701,8 +709,8 @@ async function resetToPostLevel1Schedule(db, division) {
   ]);
   await db.execute(
     `UPDATE teams
-     SET pyramid_stage = CASE WHEN tier = 1 THEN 'S2' ELSE 'S1' END,
-         pyramid_status = 'active',
+     SET pyramid_stage = CASE WHEN tier = 1 THEN 'S2'::${PG_ENUM.pyramidTeamStage} ELSE 'S1'::${PG_ENUM.pyramidTeamStage} END,
+         pyramid_status = 'active'::${PG_ENUM.pyramidTeamStatus},
          advancement_source = NULL
      WHERE division = ? AND tier IS NOT NULL`,
     [division]
