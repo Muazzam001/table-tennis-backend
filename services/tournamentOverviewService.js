@@ -73,9 +73,7 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
           )
         : [];
 
-    const l1bEntrants = tierState.teams.filter(
-      (t) => t.pyramid_stage === 'L1B' || t.advancement_source?.startsWith('S1-')
-    );
+    const l1bEntrants = tierState.teams.filter((t) => t.advancement_source?.startsWith('S1-'));
     const l1bStandings = l1bEntrants.length
       ? rankEntrantsByRoundTypes(
           l1bEntrants.map((t) => ({ id: t.id, team_name: t.team_name })),
@@ -92,7 +90,7 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
         })
       : [];
 
-    const level1bStatus = deriveLevel1bStatus(matches, divisionSettings);
+    const level1bStatus = deriveLevel1bStatus(matches, divisionSettings, tierState.teams);
     const status = derivePyramidTournamentStatus(matches, config, { level1bStatus });
 
     return {

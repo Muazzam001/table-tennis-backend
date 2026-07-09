@@ -11,7 +11,7 @@ import { scheduleFixtures, validateDateRangeForMatches } from '@shared/tournamen
 import { scheduleRoundRobinGroups } from '@shared/tournament/roundRobinScheduling.js';
 import { ensureTierPyramidSchema } from './tierPyramidSchemaService.js';
 import { getDivisionSettings, setTournamentFormat } from './divisionSettingsService.js';
-import { sqlCount } from '../utils/sql.js';
+import { sqlCount, PG_ENUM } from '../utils/sql.js';
 import {
   shouldAutoSyncPyramidTeams,
   ensurePyramidTiersSyncedFromPlayers,
@@ -288,7 +288,7 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
       const [result] = await connection.execute(
         `INSERT INTO matches (
           team1_id, team2_id, scheduled_date, venue, round_type, pool, division, pyramid_stage, stage_sequence
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?::${PG_ENUM.matchRoundType}, ?, ?, ?::${PG_ENUM.matchPyramidStage}, ?)`,
         [
           normalizedTeam1Id,
           normalizedTeam2Id,
@@ -318,7 +318,7 @@ export async function generateTierPyramidLevel1Schedule(db, options) {
     for (const team of participants) {
       const stage = team.tier === 1 ? 'S2' : 'S1';
       await connection.execute(
-        `UPDATE teams SET pyramid_stage = ?, pyramid_status = 'active' WHERE id = ? AND division = ?`,
+        `UPDATE teams SET pyramid_stage = ?::${PG_ENUM.pyramidTeamStage}, pyramid_status = 'active'::${PG_ENUM.pyramidTeamStatus} WHERE id = ? AND division = ?`,
         [stage, team.id, division]
       );
     }

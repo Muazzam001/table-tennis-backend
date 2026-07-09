@@ -632,7 +632,8 @@ export function deriveLevel1bStatus(matches, divisionSettings = {}, teams = []) 
   }
   if (stored === 'ready' || stored === 'active') return stored;
   if (teams.some((t) => t.advancement_source?.startsWith('S1-'))) return 'ready';
-  return 'waiting';
+  // S1 finished — unlock Level 1B even if auto-progression has not updated DB yet.
+  return 'ready';
 }
 
 /**
