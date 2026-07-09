@@ -1,4 +1,5 @@
 /** @typedef {import('../../types.ts').Match} Match */
+import { getLevel1BRoundMatches } from './advancement.js';
 
 /**
  * @param {number | string | null | undefined} stageSequence
@@ -70,6 +71,11 @@ export function filterMatchesForPyramidRound(matches, roundType) {
   }
   if (roundType === 'Level 1B') {
     return matches.filter((m) => m.round_type === 'Level 1B');
+  }
+  if (roundType === 'Level 1B R1' || roundType === 'Level 1B R2') {
+    const rounds = getLevel1BRoundMatches(matches);
+    const roundIndex = roundType === 'Level 1B R1' ? 0 : 1;
+    return rounds[roundIndex] || [];
   }
   if (roundType === 'S3' || roundType === 'Tier 1') {
     return matches.filter((m) => m.round_type === 'S2');
