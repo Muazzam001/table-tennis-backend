@@ -611,9 +611,51 @@ export async function getPyramidProgressionLog(db, division, limit = 100) {
 }
 
 /**
+ * Swap team1_id / team2_id between two teams on unfinished matches in a division.
+ * Single atomic UPDATE so foreign keys stay valid (no temporary sentinel id).
+ * @param {import('mysql2/promise').Pool | import('mysql2/promise').PoolConnection} db
+ * @param {string} division
+ * @param {number} teamAId
+ * @param {number} teamBId
+ */
+async function swapTeamIdsInUnfinishedMatches(db, division, teamAId, teamBId) {
+  await db.execute(
+    `UPDATE matches
+     SET team1_id = CASE
+           WHEN team1_id = ? THEN ?
+           WHEN team1_id = ? THEN ?
+           ELSE team1_id
+         END,
+         team2_id = CASE
+           WHEN team2_id = ? THEN ?
+           WHEN team2_id = ? THEN ?
+           ELSE team2_id
+         END
+     WHERE division = ?
+       AND status <> 'Completed'
+       AND (team1_id IN (?, ?) OR team2_id IN (?, ?))`,
+    [
+      teamAId,
+      teamBId,
+      teamBId,
+      teamAId,
+      teamAId,
+      teamBId,
+      teamBId,
+      teamAId,
+      division,
+      teamAId,
+      teamBId,
+      teamAId,
+      teamBId,
+    ]
+  );
+}
+
+/**
  * @param {import('mysql2/promise').Pool} db
  * @param {string} division
- * @param {{ teamId: number, toStage: string, toStatus: string, source?: string | null }[]} updates
+ * @param {{ teamId: number, toStage?: string, toStatus?: string, source?: string | null, replaceWithTeamId?: number | null }[]} updates
  * @param {number|null} adminUserId
  * @param {string|null} [notes]
  */
@@ -630,14 +672,80 @@ export async function overridePyramidAdvancement(db, division, updates, adminUse
     throw Object.assign(new Error('At least one advancement update is required.'), { statusCode: 400 });
   }
 
-  const normalized = [];
+  const advancementUpdates = [];
+  const teamSwaps = [];
+
   for (const raw of updates) {
-    const teamId = raw.teamId ?? raw.team_id;
+    const teamId = Number(raw.teamId ?? raw.team_id);
+    const replaceWithTeamId = raw.replaceWithTeamId ?? raw.replace_with_team_id ?? null;
     const { toStage, toStatus, source = null } = raw;
-    if (!teamId || !toStage || !toStatus) {
-      throw Object.assign(new Error('Each update requires teamId, toStage, and toStatus.'), {
+
+    if (!teamId) {
+      throw Object.assign(new Error('Each update requires teamId.'), { statusCode: 400 });
+    }
+
+    const [rows] = await db.execute(
+      `SELECT id, pyramid_stage, pyramid_status, advancement_source
+       FROM teams WHERE id = ? AND division = ?`,
+      [teamId, division]
+    );
+    if (!rows.length) {
+      throw Object.assign(new Error(`Team ${teamId} is not in ${division} division.`), {
         statusCode: 400,
       });
+    }
+
+    if (replaceWithTeamId != null && replaceWithTeamId !== '') {
+      const replacementId = Number(replaceWithTeamId);
+      if (!replacementId || replacementId === teamId) {
+        throw Object.assign(new Error('replaceWithTeamId must be a different team in the division.'), {
+          statusCode: 400,
+        });
+      }
+
+      const [replacementRows] = await db.execute(
+        `SELECT id, pyramid_stage, pyramid_status, advancement_source
+         FROM teams WHERE id = ? AND division = ?`,
+        [replacementId, division]
+      );
+      if (!replacementRows.length) {
+        throw Object.assign(
+          new Error(`Replacement team ${replacementId} is not in ${division} division.`),
+          { statusCode: 400 }
+        );
+      }
+
+      const outgoing = rows[0];
+      const incoming = replacementRows[0];
+
+      // Incoming team takes the outgoing team's slot; outgoing takes the incoming team's prior slot.
+      advancementUpdates.push(
+        {
+          teamId: incoming.id,
+          fromStage: '',
+          toStage: outgoing.pyramid_stage || 'registered',
+          fromStatus: '',
+          toStatus: outgoing.pyramid_status || 'active',
+          source: outgoing.advancement_source ?? null,
+        },
+        {
+          teamId: outgoing.id,
+          fromStage: '',
+          toStage: incoming.pyramid_stage || 'registered',
+          fromStatus: '',
+          toStatus: incoming.pyramid_status || 'active',
+          source: incoming.advancement_source ?? null,
+        }
+      );
+      teamSwaps.push({ teamAId: outgoing.id, teamBId: incoming.id });
+      continue;
+    }
+
+    if (!toStage || !toStatus) {
+      throw Object.assign(
+        new Error('Each update requires teamId, toStage, and toStatus (or replaceWithTeamId).'),
+        { statusCode: 400 }
+      );
     }
     if (!VALID_PYRAMID_STAGES.includes(toStage)) {
       throw Object.assign(new Error(`Invalid pyramid stage: ${toStage}`), { statusCode: 400 });
@@ -646,37 +754,31 @@ export async function overridePyramidAdvancement(db, division, updates, adminUse
       throw Object.assign(new Error(`Invalid pyramid status: ${toStatus}`), { statusCode: 400 });
     }
 
-    const [rows] = await db.execute('SELECT id FROM teams WHERE id = ? AND division = ?', [
+    advancementUpdates.push({
       teamId,
-      division,
-    ]);
-    if (!rows.length) {
-      throw Object.assign(new Error(`Team ${teamId} is not in ${division} division.`), {
-        statusCode: 400,
-      });
-    }
-
-    normalized.push({ teamId, toStage, toStatus, source: source ?? null });
+      fromStage: '',
+      toStage,
+      fromStatus: '',
+      toStatus,
+      source: source ?? null,
+    });
   }
 
   await applyAdvancementUpdates(
     db,
     division,
-    normalized.map((u) => ({
-      teamId: u.teamId,
-      fromStage: '',
-      toStage: u.toStage,
-      fromStatus: '',
-      toStatus: u.toStatus,
-      source: u.source,
-    })),
+    advancementUpdates,
     'manual_override',
     null,
     adminUserId,
     notes
   );
 
-  return { updated: normalized.length };
+  for (const swap of teamSwaps) {
+    await swapTeamIdsInUnfinishedMatches(db, division, swap.teamAId, swap.teamBId);
+  }
+
+  return { updated: advancementUpdates.length, swapped: teamSwaps.length };
 }
 
 /**

@@ -6,11 +6,14 @@ import { getPyramidPlayersFromDb } from './playerSeedService.js';
 import { isSinglesFormat } from '@shared/tournament/competitionFormat.js';
 
 /**
- * Copy players.pyramid_tier onto existing singles teams (non-destructive).
+ * Copy players.pyramid_tier onto existing singles teams.
+ * When matches already exist, only sync the tier number — never wipe pyramid_stage /
+ * advancement_source mid-tournament (that incorrectly puts Tier 1 players into L1B UI).
  * @param {import('mysql2/promise').Pool | import('mysql2/promise').PoolConnection} db
  * @param {string} division
+ * @param {{ resetStages?: boolean }} [options]
  */
-export async function propagatePyramidTiersFromPlayers(db, division) {
+export async function propagatePyramidTiersFromPlayers(db, division, options = {}) {
   await ensureTierPyramidSchema(db);
 
   const settings = await getDivisionSettings(db, division);
@@ -18,40 +21,65 @@ export async function propagatePyramidTiersFromPlayers(db, division) {
     return { propagated: false, reason: 'not_tier_pyramid', division };
   }
 
+  const hasMatches = await divisionHasPyramidMatches(db, division);
+  const resetStages = options.resetStages === true && !hasMatches;
+
   const [assigned] = await db.execute(
-    `UPDATE teams t
-     SET tier = p.pyramid_tier,
-         pyramid_stage = 'registered',
-         pyramid_status = 'active',
-         advancement_source = NULL
-     FROM players p
-     WHERE p.id = t.player1_id
-       AND t.player2_id IS NULL
-       AND t.division = ?
-       AND p.is_active = TRUE
-       AND p.pyramid_tier IS NOT NULL`,
+    resetStages
+      ? `UPDATE teams t
+         SET tier = p.pyramid_tier,
+             pyramid_stage = 'registered',
+             pyramid_status = 'active',
+             advancement_source = NULL
+         FROM players p
+         WHERE p.id = t.player1_id
+           AND t.player2_id IS NULL
+           AND t.division = ?
+           AND p.is_active = TRUE
+           AND p.pyramid_tier IS NOT NULL`
+      : `UPDATE teams t
+         SET tier = p.pyramid_tier
+         FROM players p
+         WHERE p.id = t.player1_id
+           AND t.player2_id IS NULL
+           AND t.division = ?
+           AND p.is_active = TRUE
+           AND p.pyramid_tier IS NOT NULL`,
     [division]
   );
 
-  const [cleared] = await db.execute(
-    `UPDATE teams t
-     SET tier = NULL,
-         pyramid_stage = NULL,
-         pyramid_status = NULL,
-         advancement_source = NULL
-     FROM players p
-     WHERE p.id = t.player1_id
-       AND t.player2_id IS NULL
-       AND t.division = ?
-       AND (p.pyramid_tier IS NULL OR NOT p.is_active)`,
-    [division]
-  );
+  // Never clear stage/status for teams that already have matches in this division.
+  const [cleared] = resetStages
+    ? await db.execute(
+        `UPDATE teams t
+         SET tier = NULL,
+             pyramid_stage = NULL,
+             pyramid_status = NULL,
+             advancement_source = NULL
+         FROM players p
+         WHERE p.id = t.player1_id
+           AND t.player2_id IS NULL
+           AND t.division = ?
+           AND (p.pyramid_tier IS NULL OR NOT p.is_active)`,
+        [division]
+      )
+    : await db.execute(
+        `UPDATE teams t
+         SET tier = NULL
+         FROM players p
+         WHERE p.id = t.player1_id
+           AND t.player2_id IS NULL
+           AND t.division = ?
+           AND (p.pyramid_tier IS NULL OR NOT p.is_active)`,
+        [division]
+      );
 
   return {
     propagated: true,
     division,
     teamsTiered: assigned.affectedRows,
     teamsCleared: cleared.affectedRows,
+    stagesPreserved: !resetStages,
   };
 }
 
@@ -85,7 +113,7 @@ export async function ensurePyramidTiersSyncedFromPlayers(db, division) {
     return syncPyramidTeamsFromPlayers(db, division);
   }
 
-  return propagatePyramidTiersFromPlayers(db, division);
+  return propagatePyramidTiersFromPlayers(db, division, { resetStages: true });
 }
 
 /**
@@ -101,7 +129,8 @@ export async function afterDivisionTeamsChanged(db, division) {
   if (!isSinglesFormat(settings.competition_format)) {
     return { applied: false, reason: 'not_singles' };
   }
-  return propagatePyramidTiersFromPlayers(db, division);
+  // Preserve live pyramid stages when the division already has matches.
+  return propagatePyramidTiersFromPlayers(db, division, { resetStages: false });
 }
 
 /**
