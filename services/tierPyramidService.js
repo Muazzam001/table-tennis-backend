@@ -130,13 +130,25 @@ export async function assignTiers(db, division, assignments, formatConfig = null
       const whenClauses = tierAssignments.map(() => 'WHEN id = ? THEN ?').join(' ');
       const params = tierAssignments.flatMap(({ teamId, tier }) => [teamId, tier]);
       params.push(division);
+
+      const [matchRows] = await connection.execute(
+        'SELECT COUNT(*) AS match_count FROM matches WHERE division = ?',
+        [division]
+      );
+      const hasMatches = Number(matchRows[0]?.match_count ?? 0) > 0;
+
+      // Mid-tournament tier edits must not wipe pyramid_stage (e.g. Tier 1 wrongly shown as L1B).
       await connection.execute(
-        `UPDATE teams
-         SET tier = CASE ${whenClauses} END,
-             pyramid_stage = 'registered',
-             pyramid_status = 'active',
-             advancement_source = NULL
-         WHERE id IN (${tierAssignments.map(a => a.teamId).join(',')}) AND division = ?`,
+        hasMatches
+          ? `UPDATE teams
+             SET tier = CASE ${whenClauses} END
+             WHERE id IN (${tierAssignments.map((a) => a.teamId).join(',')}) AND division = ?`
+          : `UPDATE teams
+             SET tier = CASE ${whenClauses} END,
+                 pyramid_stage = 'registered',
+                 pyramid_status = 'active',
+                 advancement_source = NULL
+             WHERE id IN (${tierAssignments.map((a) => a.teamId).join(',')}) AND division = ?`,
         params
       );
     }

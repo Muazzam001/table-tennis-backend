@@ -111,7 +111,10 @@ export const overridePyramidAdvancementHandler = async (req, res, next) => {
     );
     res.json({
       success: true,
-      message: `Advancement override applied for ${data.updated} team(s)`,
+      message:
+        data.swapped > 0
+          ? `Team replacement applied (${data.swapped} swap(s), ${data.updated} stage update(s))`
+          : `Advancement override applied for ${data.updated} team(s)`,
       data,
     });
   } catch (error) {
