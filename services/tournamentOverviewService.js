@@ -25,7 +25,7 @@ import {
   derivePyramidTournamentStatus,
   deriveLevel1bStatus,
   getS1GroupsFromMatches,
-  rankEntrantsByRoundTypes,
+  buildPyramidRankingsBundle,
 } from '@shared/tournament/formats/tierPyramid/index.js';
 
 /**
@@ -63,32 +63,10 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
       standings[poolId] = calculateGroupStandings(poolTeams, poolMatches, { roundTypes: ['S1'] });
     }
 
-    const tier1Teams = teams.filter((t) => t.tier === 1);
-    const s2Standings =
-      tier1Teams.length > 0
-        ? calculateGroupStandings(
-            tier1Teams,
-            matches.filter((m) => m.round_type === 'S2'),
-            { roundTypes: ['S2'] }
-          )
-        : [];
-
-    const l1bEntrants = tierState.teams.filter((t) => t.advancement_source?.startsWith('S1-'));
-    const l1bStandings = l1bEntrants.length
-      ? rankEntrantsByRoundTypes(
-          l1bEntrants.map((t) => ({ id: t.id, team_name: t.team_name })),
-          matches,
-          ['S1', 'Level 1B']
-        ).map((row) => {
-          const entrant = tierState.teams.find((t) => t.id === row.id);
-          const sourceMatch = entrant?.advancement_source?.match(/^S1-([A-Z])-(\d+)$/);
-          return {
-            ...row,
-            sourceGroup: sourceMatch ? sourceMatch[1] : null,
-            groupRank: sourceMatch ? Number(sourceMatch[2]) : null,
-          };
-        })
-      : [];
+    const rankings = buildPyramidRankingsBundle(tierState.teams, matches, {
+      s1StandingsByPool: standings,
+      s1QualifiersPerGroup: config.s1QualifiersPerGroup,
+    });
 
     const level1bStatus = deriveLevel1bStatus(matches, divisionSettings, tierState.teams);
     const status = derivePyramidTournamentStatus(matches, config, { level1bStatus });
@@ -105,8 +83,14 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
         tierAssignments: tierState.tierAssignments,
         s1Groups: Object.entries(s1Groups).map(([id, poolTeams]) => ({ id, teams: poolTeams })),
         standings,
-        s2Standings,
-        l1bStandings,
+        s2Standings: rankings.s2OverallStandings,
+        s1OverallStandings: rankings.s1OverallStandings,
+        s2OverallStandings: rankings.s2OverallStandings,
+        level1Standings: rankings.level1Standings,
+        l1bStandings: rankings.l1bStandings,
+        level2Standings: rankings.level2Standings,
+        level3Standings: rankings.level3Standings,
+        flowRankings: rankings.flowRankings,
         level1bStatus,
         progressionLog,
       },

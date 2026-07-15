@@ -186,6 +186,79 @@ export function hasAdvancementWithPrefix(teams, prefix) {
 }
 
 /**
+ * Level 1B field: prefer match participants (stable after R1 overwrites S1- sources),
+ * otherwise fall back to teams still tagged with S1-{pool}-{rank}.
+ * @param {Team[]} teams
+ * @param {Match[]} matches
+ * @returns {Team[]}
+ */
+export function getLevel1BEntrants(teams, matches) {
+  const l1bMatches = matches.filter((m) => m.round_type === 'Level 1B');
+  if (l1bMatches.length > 0) {
+    const ids = new Set();
+    for (const m of l1bMatches) {
+      if (m.team1_id != null) ids.add(m.team1_id);
+      if (m.team2_id != null) ids.add(m.team2_id);
+    }
+    return teams.filter((t) => ids.has(t.id));
+  }
+  return teams.filter((t) => t.advancement_source?.startsWith('S1-'));
+}
+
+/**
+ * Map team id → { sourceGroup, groupRank } from S1 standings (top N per pool).
+ * @param {Record<string, import('../../types.ts').StandingRow[]>} s1StandingsByPool
+ * @param {number} qualifiersPerGroup
+ * @returns {Map<number, { sourceGroup: string, groupRank: number }>}
+ */
+export function buildS1QualifierSourceMap(s1StandingsByPool, qualifiersPerGroup) {
+  /** @type {Map<number, { sourceGroup: string, groupRank: number }>} */
+  const map = new Map();
+  for (const [poolId, rows] of Object.entries(s1StandingsByPool || {})) {
+    const limit = Math.min(qualifiersPerGroup, rows.length);
+    for (let i = 0; i < limit; i += 1) {
+      map.set(rows[i].id, { sourceGroup: poolId, groupRank: i + 1 });
+    }
+  }
+  return map;
+}
+
+/**
+ * Full Level 1B rankings for all entrants (typically 16), including after R1/R2
+ * when advancement_source is no longer S1-*.
+ * @param {Team[]} teams
+ * @param {Match[]} matches
+ * @param {{
+ *   s1StandingsByPool?: Record<string, import('../../types.ts').StandingRow[]>,
+ *   s1QualifiersPerGroup?: number,
+ * }} [options]
+ */
+export function buildLevel1BStandings(teams, matches, options = {}) {
+  const entrants = getLevel1BEntrants(teams, matches);
+  if (entrants.length === 0) return [];
+
+  const sourceMap = buildS1QualifierSourceMap(
+    options.s1StandingsByPool || {},
+    options.s1QualifiersPerGroup ?? 4
+  );
+
+  return rankEntrantsByRoundTypes(
+    entrants.map((t) => ({ id: t.id, team_name: t.team_name })),
+    matches,
+    ['S1', 'Level 1B']
+  ).map((row) => {
+    const entrant = teams.find((t) => t.id === row.id);
+    const fromSource = entrant?.advancement_source?.match(/^S1-([A-Z])-(\d+)$/);
+    const fromStandings = sourceMap.get(row.id);
+    return {
+      ...row,
+      sourceGroup: fromSource ? fromSource[1] : (fromStandings?.sourceGroup ?? null),
+      groupRank: fromSource ? Number(fromSource[2]) : (fromStandings?.groupRank ?? null),
+    };
+  });
+}
+
+/**
  * @param {Match[]} matches
  * @param {Team[]} teams
  * @param {Partial<TierPyramidConfig>} [partialConfig]
