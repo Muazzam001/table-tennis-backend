@@ -34,7 +34,7 @@ import { generateTierPyramidLevel1Schedule } from '../services/tierPyramidServic
 import { isTierPyramidFormat } from '@shared/tournament/formats/registry.js';
 import { ensureMatchSchema } from '../services/matchSchemaService.js';
 import { autoFillMatchResults as runAutoFillMatchResults } from '../services/autoFillMatchResultsService.js';
-import { countPlayersForDivision } from '../services/tournamentService.js';
+import { countPlayersForDivision, getGroupsFromMatches, detectFormat } from '../services/tournamentService.js';
 import { buildMatchRoundSortCase } from '@shared/tournament/roundTypes.js';
 import { validateMatchResultUpdate } from '@shared/tournament/validateMatchResult.js';
 

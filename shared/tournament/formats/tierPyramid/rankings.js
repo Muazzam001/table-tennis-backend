@@ -9,7 +9,7 @@ import {
   buildS1QualifierSourceMap,
 } from './advancement.js';
 import { getLevel3Matches, getPyramidSemiFinalMatches } from './roundFilters.js';
-import { rankEntrantsByRoundTypes } from './seeding.js';
+import { rankEntrantsByRoundTypes, rankEntrantsByCumulativeWins } from './seeding.js';
 
 /**
  * @param {Match[]} matches
@@ -412,6 +412,10 @@ export function buildPyramidRankingsBundle(teams, matches, options = {}) {
       s1StandingsByPool,
       s1QualifiersPerGroup,
     }),
+    overallPerformance: rankEntrantsByCumulativeWins(
+      teams.map((t) => ({ id: t.id, team_name: t.team_name })),
+      matches
+    ),
   };
 }
 
