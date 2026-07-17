@@ -91,6 +91,7 @@ export async function buildDivisionOverview(db, division, { healThirdPlace = tru
         level2Standings: rankings.level2Standings,
         level3Standings: rankings.level3Standings,
         flowRankings: rankings.flowRankings,
+        overallPerformance: rankings.overallPerformance,
         level1bStatus,
         progressionLog,
       },
